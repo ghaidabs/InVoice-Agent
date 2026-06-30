@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "validators": {
+    "guardrails/valid_json": {
+      "import_path": "guardrails_grhub_valid_json",
+      "exports": [
+        "ValidJson"
+      ],
+      "installed_at": "2026-06-26T10:32:36.952042+00:00",
+      "package_name": "guardrails-grhub-valid-json"
+    },
+    "guardrails/detect_pii": {
+      "import_path": "guardrails_grhub_detect_pii",
+      "exports": [
+        "DetectPII"
+      ],
+      "installed_at": "2026-06-26T10:38:47.852759+00:00",
+      "package_name": "guardrails-grhub-detect-pii"
+    }
+  }
+}

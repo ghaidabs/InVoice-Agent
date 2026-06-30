@@ -1,0 +1,12 @@
+livekit-agents
+livekit-plugins-deepgram
+livekit-plugins-groq
+groq
+qdrant-client
+fastapi
+uvicorn
+guardrails-ai
+pydantic
+python-dotenv
+httpx
+pyjwt
