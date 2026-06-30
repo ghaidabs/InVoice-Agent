@@ -5,18 +5,26 @@ from schemas.intents import (
     CheckInvoiceIntent,
     AddLineItemIntent,
     CheckPaymentIntent,
+    ConfirmIntent,
+    CancelIntent,
     UnknownIntent,
 )
 from schemas.responses import VoiceResponse
+from agent.session import SessionState
 from api.mock_saas_client import MockSaasClient
-from templates.invoice import build_invoice_draft_spoken
+from templates.invoice import (
+    build_invoice_draft_spoken,
+    build_invoice_details_spoken,
+    build_invoice_list_spoken,
+    build_line_item_added_spoken,
+)
 from templates.client_lookup import build_client_spoken
 from templates.payment_status import build_payment_status_spoken
 
 CONFIDENCE_THRESHOLD = 0.7
 
 
-async def dispatch(intent, saas: MockSaasClient) -> VoiceResponse:
+async def dispatch(intent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
     if intent.confidence < CONFIDENCE_THRESHOLD:
         return VoiceResponse(
             success=False,
@@ -25,6 +33,10 @@ async def dispatch(intent, saas: MockSaasClient) -> VoiceResponse:
         )
 
     match intent:
+        case ConfirmIntent():
+            return await _handle_confirm(session, saas)
+        case CancelIntent():
+            return _handle_cancel(session)
         case LookupClientIntent():
             return await _lookup_client(intent, saas)
         case CheckPaymentIntent():
@@ -32,7 +44,7 @@ async def dispatch(intent, saas: MockSaasClient) -> VoiceResponse:
         case CheckInvoiceIntent():
             return await _check_invoice(intent, saas)
         case CreateInvoiceIntent():
-            return await _create_invoice_draft(intent, saas)
+            return await _create_invoice_draft(intent, saas, session)
         case AddLineItemIntent():
             return await _add_line_item(intent, saas)
         case UnknownIntent():
@@ -44,13 +56,12 @@ async def dispatch(intent, saas: MockSaasClient) -> VoiceResponse:
         case _:
             return VoiceResponse(
                 success=False,
-                spoken_text="I didn't understand that. Could you rephrase?",
+                spoken_text="Sorry, an unsupported intent was received.",
                 error="unhandled_intent_type",
             )
 
 
 async def _resolve_single_client(client_name: str, saas: MockSaasClient):
-    # Returns either a single client dict, or a VoiceResponse if 0 or 2+ matches
     matches = await saas.lookup_client(client_name)
     if len(matches) == 0:
         return VoiceResponse(
@@ -69,7 +80,6 @@ async def _resolve_single_client(client_name: str, saas: MockSaasClient):
         )
     return matches[0]
 
-
 async def _lookup_client(intent: LookupClientIntent, saas: MockSaasClient) -> VoiceResponse:
     result = await _resolve_single_client(intent.client_name, saas)
     if isinstance(result, VoiceResponse):
@@ -82,12 +92,27 @@ async def _lookup_client(intent: LookupClientIntent, saas: MockSaasClient) -> Vo
     )
 
 
+def _has_target(intent) -> bool:
+    # True if the intent gives us something to look an invoice/client up by
+    invoice_number = getattr(intent, "invoice_number", None)
+    client_name = getattr(intent, "client_name", None)
+    return bool(invoice_number) or bool(client_name and client_name.strip())
+
+
 async def _check_payment(intent: CheckPaymentIntent, saas: MockSaasClient) -> VoiceResponse:
+    if not _has_target(intent):
+        question = "Which invoice number or client did you mean?"
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+        )
+
     if intent.invoice_number:
         inv = await saas.get_invoice(intent.invoice_number)
         invoices = [inv] if inv else []
     else:
-        invoices = await saas.get_invoices_by_client(intent.client_name or "")
+        invoices = await saas.get_invoices_by_client(intent.client_name)
 
     if not invoices:
         return VoiceResponse(
@@ -104,11 +129,19 @@ async def _check_payment(intent: CheckPaymentIntent, saas: MockSaasClient) -> Vo
 
 
 async def _check_invoice(intent: CheckInvoiceIntent, saas: MockSaasClient) -> VoiceResponse:
+    if not _has_target(intent):
+        question = "Which invoice number or client did you mean?"
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+        )
+
     if intent.invoice_number:
         inv = await saas.get_invoice(intent.invoice_number)
         invoices = [inv] if inv else []
     else:
-        invoices = await saas.get_invoices_by_client(intent.client_name or "")
+        invoices = await saas.get_invoices_by_client(intent.client_name)
 
     if not invoices:
         return VoiceResponse(
@@ -117,56 +150,88 @@ async def _check_invoice(intent: CheckInvoiceIntent, saas: MockSaasClient) -> Vo
             error="invoice_not_found",
         )
 
+    spoken = (
+        build_invoice_details_spoken(invoices[0])
+        if len(invoices) == 1
+        else build_invoice_list_spoken(invoices)
+    )
+
     return VoiceResponse(
         success=True,
-        spoken_text=build_payment_status_spoken(invoices),  # reuse until a dedicated template exists
+        spoken_text=spoken,
         display_data=invoices,
     )
 
 
-async def _create_invoice_draft(intent: CreateInvoiceIntent, saas: MockSaasClient) -> VoiceResponse:
-    result = await _resolve_single_client(intent.client_name, saas)
-    if isinstance(result, VoiceResponse):
-        return result
-    client = result
+async def _create_invoice_draft(
+    intent: CreateInvoiceIntent, saas: MockSaasClient, session: SessionState
+    ) -> VoiceResponse:
+        result = await _resolve_single_client(intent.client_name, saas)
+        if isinstance(result, VoiceResponse):
+            return result
+        client = result
 
-    line_items = [
-        {
-            "name": item.product_name,
-            "designation": item.product_name,
-            "description": "",
-            "quantity": item.quantity,
-            "unit_price": item.unit_price or 0.0,
-            "total_ht": item.quantity * (item.unit_price or 0.0),
-            "unit": item.unit or "piece",
-        }
-        for item in intent.articles
-    ]
+        missing_price_items = [item.product_name for item in intent.articles if item.unit_price is None]
+        if missing_price_items:
+            names = ", ".join(missing_price_items)
+            question = f"I didn't catch the price for {names}. What's the unit price?"
+            return VoiceResponse(
+                success=False,
+                spoken_text=question,
+                clarification_question=question,
+            )
 
-    draft = await saas.build_invoice_draft(
-        client=client,
-        line_items=line_items,
-        currency=intent.currency,
-        is_tva_applicable=intent.is_tva_applicable,
-        is_stamp_applicable=intent.is_stamp_applicable,
-        payment_method=intent.payment_method,
-        terms_and_conditions=intent.terms_and_conditions,
-    )
+        line_items = [
+            {
+                "name": item.product_name,
+                "designation": item.product_name,
+                "description": "",
+                "quantity": item.quantity,
+                "unit_price": item.unit_price,
+                "total_ht": round(item.quantity * item.unit_price, 3),
+                "unit": item.unit or "piece",
+            }
+            for item in intent.articles
+        ]
 
-    return VoiceResponse(
-        success=True,
-        spoken_text=build_invoice_draft_spoken(draft),
-        requires_confirmation=True,
-        draft_payload=draft,   # nothing written to db yet
-    )
+        draft = await saas.build_invoice_draft(
+            client=client,
+            line_items=line_items,
+            currency=intent.currency,
+            is_tva_applicable=intent.is_tva_applicable,
+            is_stamp_applicable=intent.is_stamp_applicable,
+            payment_method=intent.payment_method,
+            terms_and_conditions=intent.terms_and_conditions,
+            due_date=intent.due_date,
+        )
+
+        # Hold the draft in session state until the user explicitly confirms or cancels
+        session.pending_draft = draft
+        session.confirmation_pending = True
+        session.last_intent = IntentType.CREATE_INVOICE.value
+
+        return VoiceResponse(
+            success=True,
+            spoken_text=build_invoice_draft_spoken(draft),
+            requires_confirmation=True,
+            draft_payload=draft,
+        )
 
 
 async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient) -> VoiceResponse:
+    if intent.unit_price is None:
+        question = f"I didn't catch the price for {intent.product_name}. What's the unit price?"
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+        )
+
     updated_invoice = await saas.add_line_item(
         invoice_number=intent.invoice_number,
         designation=intent.product_name,
         quantity=intent.quantity,
-        unit_price=intent.unit_price or 0.0,
+        unit_price=intent.unit_price,
         unit=intent.unit or "piece",
     )
 
@@ -179,20 +244,65 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient) -> Voi
 
     return VoiceResponse(
         success=True,
-        spoken_text=f"Added {intent.quantity} of {intent.product_name} to invoice {intent.invoice_number}.",
-        requires_confirmation=True,
-        draft_payload=updated_invoice,
+        spoken_text=build_line_item_added_spoken(
+            intent.invoice_number, intent.product_name, intent.quantity
+        ),
+        display_data=updated_invoice,
+    )
+
+
+async def _handle_confirm(session: SessionState, saas: MockSaasClient) -> VoiceResponse:
+    if not session.confirmation_pending or not session.pending_draft:
+        return VoiceResponse(
+            success=False,
+            spoken_text="There's nothing waiting to be confirmed right now.",
+            error="no_pending_confirmation",
+        )
+
+    invoice = await saas.confirm_invoice_draft(session.pending_draft)
+    session.pending_draft = None
+    session.confirmation_pending = False
+    session.last_intent = None
+
+    return VoiceResponse(
+        success=True,
+        spoken_text=(
+            f"Invoice {invoice['invoice_number']} has been created for "
+            f"{invoice['client_name']}, total {invoice['total_ttc']} {invoice['currency']}."
+        ),
+        display_data=invoice,
+    )
+
+
+def _handle_cancel(session: SessionState) -> VoiceResponse:
+    if not session.confirmation_pending:
+        return VoiceResponse(
+            success=False,
+            spoken_text="There's nothing waiting to be cancelled right now.",
+            error="no_pending_confirmation",
+        )
+
+    session.pending_draft = None
+    session.confirmation_pending = False
+    session.last_intent = None
+
+    return VoiceResponse(
+        success=True,
+        spoken_text="Okay, I discarded the draft invoice.",
     )
 
 
 def _clarification_prompt(intent) -> str:
+    if isinstance(intent, (ConfirmIntent, CancelIntent)):
+        return "Sorry, were you confirming or cancelling that? Could you repeat?"
+
     fields = getattr(intent, "low_confidence_fields", [])
 
     if "invoice_number" in fields:
         inv = getattr(intent, "invoice_number", None)
         return f"Did you mean invoice {inv}? Please confirm." if inv else "Which invoice number did you mean?"
     if "client_name" in fields:
-        return f"I wasn't sure about the client name. Could you repeat it?"
+        return "I wasn't sure about the client name. Could you repeat it?"
     if "unit_price" in fields:
         return "I wasn't sure about the price. Could you confirm the amount?"
     if "articles" in fields:

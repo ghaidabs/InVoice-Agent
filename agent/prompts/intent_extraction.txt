@@ -56,6 +56,18 @@ intent = "check_payment"
   "confidence": float
 }
 
+intent = "confirm"
+{
+  "intent": "confirm",
+  "confidence": float
+}
+
+intent = "cancel"
+{
+  "intent": "cancel",
+  "confidence": float
+}
+
 intent = "unknown"
 {
   "intent": "unknown",
@@ -71,3 +83,4 @@ Rules:
 - Default currency is "TND" unless another currency is explicitly stated.
 - If the transcript does not clearly match any intent above, return "unknown" with the full transcript in "raw_text".
 - "invoice_number" follows the format COMPANYSLUG_F{YYYYMM}-{SEQUENCE}, e.g. ACME_F202606-001. If the user gives a partial or unclear number, do not guess the rest — return null and lower confidence instead.
+- If the user is responding affirmatively to a pending confirmation (e.g. "confirme", "oui", "vas-y", "c'est bon", "valide"), return intent "confirm". If they are declining or backing out (e.g. "annule", "non", "stop", "annulé"), return intent "cancel". Use high confidence for these unless the transcript is genuinely ambiguous between confirming and something else.

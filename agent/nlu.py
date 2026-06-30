@@ -9,6 +9,8 @@ from schemas.intents import (
     CheckInvoiceIntent,
     AddLineItemIntent,
     CheckPaymentIntent,
+    ConfirmIntent,
+    CancelIntent,
     UnknownIntent,
     LineItemInput,
 )
@@ -24,6 +26,8 @@ _INTENT_MODEL_MAP = {
     IntentType.CHECK_INVOICE: CheckInvoiceIntent,
     IntentType.ADD_LINE_ITEM: AddLineItemIntent,
     IntentType.CHECK_PAYMENT: CheckPaymentIntent,
+    IntentType.CONFIRM: ConfirmIntent,
+    IntentType.CANCEL: CancelIntent,
     IntentType.UNKNOWN: UnknownIntent,
 }
 

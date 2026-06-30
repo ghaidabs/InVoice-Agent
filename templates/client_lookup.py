@@ -1,5 +1,3 @@
-# templates/client_lookup.py
-
 def build_client_spoken(client: dict) -> str:
     full_name = f"{client['first_name']} {client['last_name']}"
     return (

@@ -38,6 +38,8 @@ def paginate(items: list, page: int = 1, size: int = 10) -> dict:
         "stats": []
     }
 
+def get_company_by_id(company_id: int) -> dict | None:
+    return deepcopy(_companies.get(company_id))
 
 def get_user_by_id(user_id: int) -> dict | None:
     return deepcopy(_users.get(user_id))
@@ -98,13 +100,14 @@ def get_invoice_by_number(invoice_number: str, company_id: int) -> dict | None:
 
 
 def get_invoices_by_client_name(client_name: str, company_id: int) -> list:
-    name_lower = client_name.lower()
+    name_lower = client_name.strip().lower()
+    if not name_lower:
+        return []                                     
     return [
         deepcopy(i) for i in _invoices.values()
         if name_lower in i["client_name"].lower()
         and i["company_id"] == company_id
     ]
-
 
 def get_invoices_by_status(status: str, company_id: int) -> list:
     return [
@@ -117,52 +120,53 @@ def get_invoices_by_status(status: str, company_id: int) -> list:
 def create_invoice(
     company_id: int,
     user_id: int,
-    client: dict,                                     
+    client: dict,
     line_items: list,
     currency: str = "TND",
     is_tva_applicable: bool = False,
     is_stamp_applicable: bool = False,
     payment_method: str | None = None,
     terms_and_conditions: str | None = None,
-) -> dict:
+    due_date: str | None = None,
+    ) -> dict:
 
-    invoice_number = _next_invoice_number(company_id)
-    now = datetime.now().isoformat()
+        invoice_number = _next_invoice_number(company_id)
+        now = datetime.now().isoformat()
 
-    total_ht = round(sum(item["quantity"] * item["unit_price"] for item in line_items), 3)
-    tva      = round(total_ht * 0.19, 3) if is_tva_applicable else 0.0
-    # stamp tax in Tunisia is a fixed 1 TND per invoice
-    stamp    = 1.0 if is_stamp_applicable else 0.0
-    total_ttc = round(total_ht + tva + stamp, 3)
+        total_ht = round(sum(item["quantity"] * item["unit_price"] for item in line_items), 3)
+        tva      = round(total_ht * 0.19, 3) if is_tva_applicable else 0.0
+        stamp    = 1.0 if is_stamp_applicable else 0.0
+        total_ttc = round(total_ht + tva + stamp, 3)
 
-    invoice = {
-        "id": max((i["id"] for i in _invoices.values()), default=0) + 1,
-        "invoice_number": invoice_number,
-        "date_issued": now,
-        "status": "draft",                            # always starts as draft
-        "user_id": user_id,
-        "company_id": company_id,
-        "articles": line_items,
-        "commerce_inter_product_infos": [],
-        "client_name": f"{client['first_name']} {client['last_name']}",
-        "client_address": client["address"],
-        "client_matricule_fiscale": client["mat_fiscale"],
-        "currency": currency,
-        "invoice_date": now,
-        "is_tva_applicable": is_tva_applicable,
-        "is_stamp_applicable": is_stamp_applicable,
-        "total_ht": total_ht,
-        "tva": tva,
-        "total_ttc": total_ttc,
-        "fret_fob": 0.0,
-        "fret_out": 0.0,
-        "terms_and_conditions": terms_and_conditions,
-        "payment_method": payment_method,
-        "display_discount": False
-    }
+        invoice = {
+            "id": max((i["id"] for i in _invoices.values()), default=0) + 1,
+            "invoice_number": invoice_number,
+            "date_issued": now,
+            "status": "draft",
+            "user_id": user_id,
+            "company_id": company_id,
+            "articles": line_items,
+            "commerce_inter_product_infos": [],
+            "client_name": f"{client['first_name']} {client['last_name']}",
+            "client_address": client["address"],
+            "client_matricule_fiscale": client["mat_fiscale"],
+            "currency": currency,
+            "invoice_date": now,
+            "due_date": due_date,
+            "is_tva_applicable": is_tva_applicable,
+            "is_stamp_applicable": is_stamp_applicable,
+            "total_ht": total_ht,
+            "tva": tva,
+            "total_ttc": total_ttc,
+            "fret_fob": 0.0,
+            "fret_out": 0.0,
+            "terms_and_conditions": terms_and_conditions,
+            "payment_method": payment_method,
+            "display_discount": False
+        }
 
-    _invoices[invoice_number] = invoice               # keyed by invoice_number
-    return deepcopy(invoice)
+        _invoices[invoice_number] = invoice
+        return deepcopy(invoice)
 
 
 def build_invoice_draft(
@@ -175,40 +179,41 @@ def build_invoice_draft(
     is_stamp_applicable: bool = False,
     payment_method: str | None = None,
     terms_and_conditions: str | None = None,
-) -> dict:
-    """Computes a full invoice preview WITHOUT persisting it or consuming an invoice number."""
-    now = datetime.now().isoformat()
+    due_date: str | None = None,
+    ) -> dict:
+        """Computes a full invoice preview WITHOUT persisting it or consuming an invoice number."""
+        now = datetime.now().isoformat()
 
-    total_ht = round(sum(item["quantity"] * item["unit_price"] for item in line_items), 3)
-    tva      = round(total_ht * 0.19, 3) if is_tva_applicable else 0.0
-    stamp    = 1.0 if is_stamp_applicable else 0.0
-    total_ttc = round(total_ht + tva + stamp, 3)
+        total_ht = round(sum(item["quantity"] * item["unit_price"] for item in line_items), 3)
+        tva      = round(total_ht * 0.19, 3) if is_tva_applicable else 0.0
+        stamp    = 1.0 if is_stamp_applicable else 0.0
+        total_ttc = round(total_ht + tva + stamp, 3)
 
-    return {
-        "invoice_number": None,          # not assigned until confirmed
-        "date_issued": now,
-        "status": "draft",
-        "user_id": user_id,
-        "company_id": company_id,
-        "articles": line_items,
-        "commerce_inter_product_infos": [],
-        "client_name": f"{client['first_name']} {client['last_name']}",
-        "client_address": client["address"],
-        "client_matricule_fiscale": client["mat_fiscale"],
-        "currency": currency,
-        "invoice_date": now,
-        "is_tva_applicable": is_tva_applicable,
-        "is_stamp_applicable": is_stamp_applicable,
-        "total_ht": total_ht,
-        "tva": tva,
-        "total_ttc": total_ttc,
-        "fret_fob": 0.0,
-        "fret_out": 0.0,
-        "terms_and_conditions": terms_and_conditions,
-        "payment_method": payment_method,
-        "display_discount": False,
-    }
-
+        return {
+            "invoice_number": None,
+            "date_issued": now,
+            "status": "draft",
+            "user_id": user_id,
+            "company_id": company_id,
+            "articles": line_items,
+            "commerce_inter_product_infos": [],
+            "client_name": f"{client['first_name']} {client['last_name']}",
+            "client_address": client["address"],
+            "client_matricule_fiscale": client["mat_fiscale"],
+            "currency": currency,
+            "invoice_date": now,
+            "due_date": due_date,
+            "is_tva_applicable": is_tva_applicable,
+            "is_stamp_applicable": is_stamp_applicable,
+            "total_ht": total_ht,
+            "tva": tva,
+            "total_ttc": total_ttc,
+            "fret_fob": 0.0,
+            "fret_out": 0.0,
+            "terms_and_conditions": terms_and_conditions,
+            "payment_method": payment_method,
+            "display_discount": False,
+        }
 
 def confirm_invoice_draft(draft: dict) -> dict:
     """Persists a previously-built draft. Assigns the real invoice_number now."""

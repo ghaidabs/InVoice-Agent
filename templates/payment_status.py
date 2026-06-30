@@ -1,9 +1,4 @@
-# templates/payment_status.py
-
 def build_payment_status_spoken(invoices: list[dict]) -> str:
-    if not invoices:
-        return "I couldn't find any matching invoices."
-
     if len(invoices) == 1:
         inv = invoices[0]
         status = inv.get("status", "unknown")

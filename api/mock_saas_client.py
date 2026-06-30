@@ -38,25 +38,27 @@ class MockSaasClient:
 
     async def create_invoice(
         self,
-        client: dict,           
+        client: dict,
         line_items: list[dict],
         currency: str = "TND",
         is_tva_applicable: bool = False,
         is_stamp_applicable: bool = False,
         payment_method: str | None = None,
         terms_and_conditions: str | None = None,
-    ) -> dict:
-        return create_invoice(
-            company_id=self.company_id,
-            user_id=self.user_id,
-            client=client,
-            line_items=line_items,
-            currency=currency,
-            is_tva_applicable=is_tva_applicable,
-            is_stamp_applicable=is_stamp_applicable,
-            payment_method=payment_method,
-            terms_and_conditions=terms_and_conditions,
-        )
+        due_date: str | None = None,
+        ) -> dict:
+            return create_invoice(
+                company_id=self.company_id,
+                user_id=self.user_id,
+                client=client,
+                line_items=line_items,
+                currency=currency,
+                is_tva_applicable=is_tva_applicable,
+                is_stamp_applicable=is_stamp_applicable,
+                payment_method=payment_method,
+                terms_and_conditions=terms_and_conditions,
+                due_date=due_date,
+            )
 
     async def build_invoice_draft(self, client: dict, line_items: list, **kwargs) -> dict:
         return build_invoice_draft(

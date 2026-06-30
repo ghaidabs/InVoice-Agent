@@ -8,6 +8,8 @@ class IntentType(str, Enum):
     CHECK_INVOICE      = "check_invoice"
     ADD_LINE_ITEM      = "add_line_item"
     CHECK_PAYMENT      = "check_payment"
+    CONFIRM            = "confirm"
+    CANCEL             = "cancel"
     UNKNOWN            = "unknown"
 
 class BaseIntent(BaseModel):
@@ -19,7 +21,13 @@ class LineItemInput(BaseModel):
     product_name: str
     quantity: float
     unit_price: Optional[float] = None
-    unit: Optional[str] = None  
+    unit: Optional[str] = None
+
+class ConfirmIntent(BaseIntent):
+    intent: Literal[IntentType.CONFIRM]
+
+class CancelIntent(BaseIntent):
+    intent: Literal[IntentType.CANCEL]
 
 class CreateInvoiceIntent(BaseIntent):
     intent: Literal[IntentType.CREATE_INVOICE]
