@@ -4,7 +4,7 @@ load_dotenv()
 import asyncio
 
 from agent.session import SessionState, UserContext
-from agent.nlu import extract_intent
+from agent.nlu import extract_intent_with_context
 from agent.dispatcher import dispatch
 from api.mock_saas_client import MockSaasClient
 from mock.db import get_user_by_id, get_company_by_id

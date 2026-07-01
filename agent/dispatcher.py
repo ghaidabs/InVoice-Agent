@@ -171,6 +171,18 @@ async def _create_invoice_draft(
             return result
         client = result
 
+        missing_price_items = [item.product_name for item in intent.articles if item.unit_price is None]
+        if missing_price_items:
+            names = ", ".join(missing_price_items)
+            question = f"I didn't catch the price for {names}. What's the unit price?"
+            session.awaiting_field = "unit_price"
+            session.pending_transcript = intent.raw_transcript
+            return VoiceResponse(
+                success=False,
+                spoken_text=question,
+                clarification_question=question,
+            )
+
         line_items = []
         for item in intent.articles:
             matches = await saas.lookup_product(item.product_name)
@@ -184,19 +196,6 @@ async def _create_invoice_draft(
                 "total_ht": round(item.quantity * item.unit_price, 3),
                 "unit": item.unit or "piece",
             })
-
-        missing_price_items = [item.product_name for item in intent.articles if item.unit_price is None]
-        if missing_price_items:
-            names = ", ".join(missing_price_items)
-            question = f"I didn't catch the price for {names}. What's the unit price?"
-            session.awaiting_field = "unit_price"
-            session.pending_transcript = intent.raw_transcript
-            return VoiceResponse(
-                success=False,
-                spoken_text=question,
-                clarification_question=question,
-            )
-
         draft = await saas.build_invoice_draft(
             client=client,
             line_items=line_items,
@@ -212,6 +211,9 @@ async def _create_invoice_draft(
         session.pending_draft = draft
         session.confirmation_pending = True
         session.last_intent = IntentType.CREATE_INVOICE.value
+
+        session.awaiting_field = None
+        session.pending_transcript = None
 
         return VoiceResponse(
             success=True,
