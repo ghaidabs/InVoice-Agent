@@ -83,3 +83,9 @@ def extract_intent(transcript: str):
             confidence=0.0,
             raw_transcript=transcript,
         )
+
+def extract_intent_with_context(transcript: str, session: "SessionState"):
+    if session.awaiting_field and session.pending_transcript:
+        combined = f"{session.pending_transcript}. {transcript}"
+        return extract_intent(combined)
+    return extract_intent(transcript)

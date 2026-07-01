@@ -1,19 +1,5 @@
-"""
-agent/main.py
-
-Manual text-mode harness for the voice-invoicing pipeline, used while STT/TTS and
-real per-call session storage aren't wired up yet.
-
-Flow exercised here: transcript (typed) -> NLU (Groq) -> dispatcher -> VoiceResponse,
-with a single in-memory SessionState held for the life of the process.
-
-Requires GROQ_API_KEY to be set (loaded from .env). For testing dispatcher logic
-without hitting the network or depending on LLM output, use
-scripts/test_dispatcher_scenarios.py instead.
-"""
-
 from dotenv import load_dotenv
-load_dotenv()  # must happen before importing agent.nlu, which builds the Groq client at import time
+load_dotenv()
 
 import asyncio
 
@@ -99,7 +85,7 @@ async def repl() -> None:
             print(f"Switched to user_id={session.user.user_id} company={session.user.company_slug}\n")
             continue
 
-        intent = extract_intent(transcript)
+        intent = extract_intent_with_context(transcript, session)
         print(f"   [intent: {intent.intent}  confidence={intent.confidence}]")
 
         resp = await dispatch(intent, saas, session)

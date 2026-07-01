@@ -46,7 +46,7 @@ async def dispatch(intent, saas: MockSaasClient, session: SessionState) -> Voice
         case CreateInvoiceIntent():
             return await _create_invoice_draft(intent, saas, session)
         case AddLineItemIntent():
-            return await _add_line_item(intent, saas)
+            return await _add_line_item(intent, saas, session)
         case UnknownIntent():
             return VoiceResponse(
                 success=False,
@@ -171,28 +171,31 @@ async def _create_invoice_draft(
             return result
         client = result
 
-        missing_price_items = [item.product_name for item in intent.articles if item.unit_price is None]
-        if missing_price_items:
-            names = ", ".join(missing_price_items)
-            question = f"I didn't catch the price for {names}. What's the unit price?"
-            return VoiceResponse(
-                success=False,
-                spoken_text=question,
-                clarification_question=question,
-            )
-
-        line_items = [
-            {
-                "name": item.product_name,
-                "designation": item.product_name,
+        line_items = []
+        for item in intent.articles:
+            matches = await saas.lookup_product(item.product_name)
+            designation = matches[0]["designation"] if len(matches) == 1 else item.product_name
+            line_items.append({
+                "name": designation,
+                "designation": designation,
                 "description": "",
                 "quantity": item.quantity,
                 "unit_price": item.unit_price,
                 "total_ht": round(item.quantity * item.unit_price, 3),
                 "unit": item.unit or "piece",
-            }
-            for item in intent.articles
-        ]
+            })
+
+        missing_price_items = [item.product_name for item in intent.articles if item.unit_price is None]
+        if missing_price_items:
+            names = ", ".join(missing_price_items)
+            question = f"I didn't catch the price for {names}. What's the unit price?"
+            session.awaiting_field = "unit_price"
+            session.pending_transcript = intent.raw_transcript
+            return VoiceResponse(
+                success=False,
+                spoken_text=question,
+                clarification_question=question,
+            )
 
         draft = await saas.build_invoice_draft(
             client=client,
@@ -218,18 +221,23 @@ async def _create_invoice_draft(
         )
 
 
-async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient) -> VoiceResponse:
+async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
     if intent.unit_price is None:
         question = f"I didn't catch the price for {intent.product_name}. What's the unit price?"
+        session.awaiting_field = "unit_price"
+        session.pending_transcript = intent.raw_transcript
         return VoiceResponse(
             success=False,
             spoken_text=question,
             clarification_question=question,
         )
 
+    matches = await saas.lookup_product(intent.product_name)
+    designation = matches[0]["designation"] if len(matches) == 1 else intent.product_name
+
     updated_invoice = await saas.add_line_item(
         invoice_number=intent.invoice_number,
-        designation=intent.product_name,
+        designation=designation,
         quantity=intent.quantity,
         unit_price=intent.unit_price,
         unit=intent.unit or "piece",
@@ -242,6 +250,8 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient) -> Voi
             error="invoice_not_found",
         )
 
+    session.awaiting_field = None
+    session.pending_transcript = None
     return VoiceResponse(
         success=True,
         spoken_text=build_line_item_added_spoken(
@@ -275,6 +285,8 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient) -> VoiceR
 
 
 def _handle_cancel(session: SessionState) -> VoiceResponse:
+    session.awaiting_field = None
+    session.pending_transcript = None
     if not session.confirmation_pending:
         return VoiceResponse(
             success=False,

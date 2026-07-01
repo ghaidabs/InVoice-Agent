@@ -6,7 +6,7 @@ from datetime import datetime
 DATA_DIR = Path(__file__).parent
 
 def _load(filename):
-    with open(DATA_DIR / filename) as f:
+    with open(DATA_DIR / filename, encoding="utf-8") as f:
         return json.load(f)
 
 _clients   = {c["id"]: c for c in _load("clients.json")}
@@ -181,7 +181,6 @@ def build_invoice_draft(
     terms_and_conditions: str | None = None,
     due_date: str | None = None,
     ) -> dict:
-        """Computes a full invoice preview WITHOUT persisting it or consuming an invoice number."""
         now = datetime.now().isoformat()
 
         total_ht = round(sum(item["quantity"] * item["unit_price"] for item in line_items), 3)
@@ -216,11 +215,10 @@ def build_invoice_draft(
         }
 
 def confirm_invoice_draft(draft: dict) -> dict:
-    """Persists a previously-built draft. Assigns the real invoice_number now."""
     company_id = draft["company_id"]
     invoice_number = _next_invoice_number(company_id)
 
-    invoice = {**draft, "invoice_number": invoice_number}
+    invoice = {**draft, "invoice_number": invoice_number, "status": "validated"}
     invoice["id"] = max((i["id"] for i in _invoices.values()), default=0) + 1
 
     _invoices[invoice_number] = invoice
@@ -235,28 +233,28 @@ def add_line_item(
     unit_price: float,
     unit: str,
     description: str | None = None,
-) -> dict | None:
-    inv = _invoices.get(invoice_number)
-    if not inv:
-        return None
-    if inv["company_id"] != company_id:               
-        return None
+    ) -> dict | None:
+        inv = _invoices.get(invoice_number)
+        if not inv:
+            return None
+        if inv["company_id"] != company_id:               
+            return None
 
-    new_item = {
-        "name": designation,
-        "designation": designation,
-        "description": description or "",
-        "quantity": quantity,
-        "unit_price": unit_price,
-        "total_ht": round(quantity * unit_price, 3),
-        "unit": unit
-    }
-    inv["articles"].append(new_item)
+        new_item = {
+            "name": designation,
+            "designation": designation,
+            "description": description or "",
+            "quantity": quantity,
+            "unit_price": unit_price,
+            "total_ht": round(quantity * unit_price, 3),
+            "unit": unit
+        }
+        inv["articles"].append(new_item)
 
-    # recalculate totals
-    inv["total_ht"]  = round(sum(a["total_ht"] for a in inv["articles"]), 3)
-    inv["tva"]       = round(inv["total_ht"] * 0.19, 3) if inv["is_tva_applicable"] else 0.0
-    stamp            = 1.0 if inv["is_stamp_applicable"] else 0.0
-    inv["total_ttc"] = round(inv["total_ht"] + inv["tva"] + stamp, 3)
+        # recalculate totals
+        inv["total_ht"]  = round(sum(a["total_ht"] for a in inv["articles"]), 3)
+        inv["tva"]       = round(inv["total_ht"] * 0.19, 3) if inv["is_tva_applicable"] else 0.0
+        stamp            = 1.0 if inv["is_stamp_applicable"] else 0.0
+        inv["total_ttc"] = round(inv["total_ht"] + inv["tva"] + stamp, 3)
 
-    return deepcopy(inv)
+        return deepcopy(inv)
