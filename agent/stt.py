@@ -1,39 +1,64 @@
-import os
-from dataclasses import dataclass
-from pathlib import Path
-from deepgram import DeepgramClient
+import asyncio
+from dataclasses import dataclass, field
+from deepgram import AsyncDeepgramClient
+from deepgram.core.events import EventType
 
-DEFAULT_MODEL = "nova-3"
-DEFAULT_LANGUAGE = "fr"
-
-_client = None
-
-def _get_client() -> DeepgramClient:
-    global _client
-    if _client is None:
-        api_key = os.environ.get("DEEPGRAM_API_KEY")
-        if not api_key:
-            raise RuntimeError("DEEPGRAM_API_KEY is not set (check .env)")
-        _client = DeepgramClient(api_key=api_key)
-    return _client
-
+FLUX_MODEL = "flux-general-multi"
+LANGUAGE_HINTS = ["fr", "en"]
 
 @dataclass
 class TranscriptionResult:
     transcript: str
-    confidence: float
+    confidence: float                 
+    low_confidence_words: list[str] = field(default_factory=list)
 
 
-def transcribe_file(audio_path: str | Path) -> TranscriptionResult:
-    client = _get_client()
-    with open(audio_path, "rb") as f:
-        response = client.listen.v1.media.transcribe_file(
-            request=f,
-            model=DEFAULT_MODEL,
-            language=DEFAULT_LANGUAGE,
-            smart_format=True,
-            punctuate=True,
-            numerals=True,
+async def transcribe_stream(
+    pcm_chunks,
+    stop_event: asyncio.Event | None = None,
+    timeout: float = 30.0,
+    ) -> TranscriptionResult:
+        client = AsyncDeepgramClient()
+        parts, low_conf, confidences = [], [], []
+        done = asyncio.Event()
+
+        async with client.listen.v2.connect(
+            model=FLUX_MODEL,
+            encoding="linear16",
+            sample_rate=16000,
+            request_options={"additional_query_parameters": {"language_hint": LANGUAGE_HINTS}},
+        ) as connection:
+
+            def on_message(message) -> None:
+                if getattr(message, "transcript", None):
+                    parts.append(message.transcript)
+                for w in getattr(message, "words", None) or []:
+                    confidences.append(w.confidence)
+                    if w.confidence < 0.75:
+                        low_conf.append(w.word)
+                if getattr(message, "type", None) == "EndOfTurn":
+                    done.set()
+                    if stop_event is not None:
+                        stop_event.set()
+
+            connection.on(EventType.MESSAGE, on_message)
+            listen_task = asyncio.create_task(connection.start_listening())
+
+            async def pump():
+                async for chunk in pcm_chunks:
+                    if done.is_set():
+                        break
+                    await connection._send(chunk)
+
+            pump_task = asyncio.create_task(pump())
+            try:
+                await asyncio.wait_for(done.wait(), timeout=timeout)
+            finally:
+                pump_task.cancel()
+                listen_task.cancel()
+
+        return TranscriptionResult(
+            transcript=" ".join(parts).strip(),
+            confidence=min(confidences) if confidences else 0.0,
+            low_confidence_words=low_conf,
         )
-    alt = response.results.channels[0].alternatives[0]
-    return TranscriptionResult(transcript=alt.transcript, confidence=alt.confidence)
