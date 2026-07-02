@@ -5,8 +5,11 @@ groq
 qdrant-client
 fastapi
 uvicorn
-guardrails-ai
 pydantic
 python-dotenv
 httpx
 pyjwt
+presidio-analyzer 
+presidio-anonymizer 
+spacy
+langdetect

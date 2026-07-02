@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 from groq import Groq
-
+from agent.validator import redact_pii 
 from schemas.intents import (
     IntentType,
     CreateInvoiceIntent,
@@ -33,11 +33,13 @@ _INTENT_MODEL_MAP = {
 
 
 def extract_intent(transcript: str):
+    safe_transcript = redact_pii(transcript)
+
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": transcript},
+            {"role": "user", "content": safe_transcript},
         ],
         response_format={"type": "json_object"},
         temperature=0.1,
