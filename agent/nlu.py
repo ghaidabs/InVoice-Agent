@@ -36,7 +36,7 @@ def extract_intent(transcript: str):
     safe_transcript = redact_pii(transcript)
 
     response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": safe_transcript},
