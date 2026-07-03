@@ -1,23 +1,32 @@
+# test_streaming_stt.py
 from dotenv import load_dotenv
 load_dotenv()
 
-import sounddevice as sd
-from scipy.io.wavfile import write
-from agent.stt import transcribe_file
+from agent.stt import StreamingSTT, StreamingTranscript
 
-SAMPLE_RATE = 16000
-DURATION = 10
+def on_transcript(t: StreamingTranscript):
+    tag = "FINAL" if t.speech_final else ("interim" if not t.is_final else "final-ish")
+    lang = f" [{t.language}]" if t.language else ""
+    print(f"[{tag}]{lang} {t.transcript}")
 
-def record(path="mic_test.wav"):
-    print(f"🎙️  Recording for {DURATION}s... speak now.")
-    audio = sd.rec(int(DURATION * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="int16")
-    sd.wait()
-    write(path, SAMPLE_RATE, audio)
-    print("✅ Saved:", path)
-    return path
+def on_error(err):
+    print(f"ERROR: {err}")
+
+def on_speech_started():
+    print("... speech started ...")
+
+def on_utterance_end():
+    print("... utterance end ...")
 
 if __name__ == "__main__":
-    path = record()
-    result = transcribe_file(path)
-    print("\nTranscript:", result.transcript)
-    print("Confidence:", round(result.confidence, 3))
+    stt = StreamingSTT(
+        on_transcript=on_transcript,
+        on_error=on_error,
+        on_speech_started=on_speech_started,
+        on_utterance_end=on_utterance_end,
+    )
+    stt.start()
+    print("🎙️  Listening... speak in French or English. Press Enter to stop.\n")
+    input()
+    stt.stop()
+    print("stopped.")
