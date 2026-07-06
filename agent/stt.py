@@ -20,8 +20,6 @@ logger = logging.getLogger(__name__)
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
 LANGUAGE_MODE = os.environ.get("DEEPGRAM_LANGUAGE_MODE", "multi")
 
-# Invoice numbers follow COMPANYSLUG_F{YYYYMM}-{SEQUENCE}, 
-DEFAULT_KEYTERMS = ["ACME", "NOVA"]
 
 DEFAULT_STT_CONFIG = {
     "model": "nova-3",
@@ -32,11 +30,10 @@ DEFAULT_STT_CONFIG = {
     "interim_results": True,   
     "utterance_end_ms": "1000",
     "vad_events": True,
-    "endpointing": 300,
+    "endpointing": 500,
     "encoding": "linear16",
     "sample_rate": 16000,
     "channels": 1,
-    "keyterm": DEFAULT_KEYTERMS,
 }
 
 WORD_CONFIDENCE_FLOOR = 0.55
@@ -55,7 +52,6 @@ class WordResult:
 
 @dataclass
 class TranscriptResult:
-    """A complete, assembled utterance — not a raw Deepgram fragment."""
     transcript: str
     confidence: float                
     words: list[WordResult] = field(default_factory=list)
@@ -266,108 +262,33 @@ class LiveKitAudioSource:
 
 
 
-_RESET, _BOLD, _DIM = "\033[0m", "\033[1m", "\033[2m"
-_GREEN, _YELLOW, _RED, _CYAN = "\033[32m", "\033[33m", "\033[31m", "\033[36m"
-_WORDS_PER_LINE = 6
+def build_keyterms_for_company(company_id: int, extra: list[str] | None = None, max_terms: int = 50) -> list[str]:
+    from mock.db import get_all_clients, get_all_products, get_company_by_id  
+    terms: set[str] = set(get_company_by_id(company_id)["name"].split())
+
+    clients = get_all_clients(company_id, page=1, size=1000)["items"]
+    for c in clients:
+        terms.add(c["first_name"])
+        terms.add(c["last_name"])
+
+    products = get_all_products(company_id, page=1, size=1000)["items"]
+    for p in products:
+        terms.update(w for w in p["designation"].split() if len(w) > 2)
+
+    if extra:
+        terms.update(extra)
+
+    return list(terms)[:max_terms]
 
 
-def _confidence_color(value: float, floor: float) -> str:
-    if value >= floor:
-        return _GREEN
-    if value >= floor - 0.15:
-        return _YELLOW
-    return _RED
+LOW_CONF_MARK = "⚠"
 
-
-async def _print_transcript(result: TranscriptResult) -> None:
-    overall_color = _confidence_color(result.confidence, TRANSCRIPT_CONFIDENCE_FLOOR)
-    status = "OK" if not result.low_confidence else "LOW CONFIDENCE"
-
-    print(f'{_BOLD}Transcript{_RESET} : "{result.transcript}"')
-    print(
-        f"{_BOLD}Confidence{_RESET} : {overall_color}{result.confidence:.3f}{_RESET} "
-        f"({status}, threshold {TRANSCRIPT_CONFIDENCE_FLOOR:.2f})"
-    )
-
-    if result.words:
-        print(f"{_DIM}Per-word confidence:{_RESET}")
-        line = []
-        for w in result.words:
-            color = _confidence_color(w.confidence, WORD_CONFIDENCE_FLOOR)
-            line.append(f"{color}{w.word}={w.confidence:.2f}{_RESET}")
-            if len(line) == _WORDS_PER_LINE:
-                print("  " + "  ".join(line))
-                line = []
-        if line:
-            print("  " + "  ".join(line))
-
-        low_words = result.low_confidence_words()
-        if low_words:
-            names = ", ".join(w.word for w in low_words)
-            print(f"{_YELLOW}⚠ Low-confidence words (<{WORD_CONFIDENCE_FLOOR}):{_RESET} {names}")
-
-    print(f"{_DIM}{'─' * 60}{_RESET}\n")
-
-
-async def _print_error(error: Exception) -> None:
-    print(f"{_RED}[error] {error}{_RESET}\n")
-
-
-async def _on_speaking_state_change(speaking: bool) -> None:
-    print(f"\n{_CYAN}🎤 start speaking{_RESET}" if speaking else f"{_CYAN}🛑 end speaking{_RESET}")
-
-
-async def _stream_microphone(language: str) -> None:
-    try:
-        import sounddevice as sd
-    except ImportError:
-        raise SystemExit(
-            "sounddevice is required to run this test. Install with: pip install sounddevice numpy"
-        )
-
-    session = STTSession(
-        on_transcript=_print_transcript,
-        on_error=_print_error,
-        on_speaking_state_change=_on_speaking_state_change,
-        config={"sample_rate": 16000, "channels": 1, "language": language},
-    )
-    await session.start()
-
-    loop = asyncio.get_event_loop()
-    audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
-
-    def _callback(indata, frames, time_info, status):
-        if status:
-            logger.debug("sounddevice status: %s", status)
-        loop.call_soon_threadsafe(audio_queue.put_nowait, bytes(indata))
-
-    stream = sd.RawInputStream(
-        samplerate=16000, channels=1, dtype="int16", blocksize=1024, callback=_callback,
-    )
-
-    with stream:
-        try:
-            while True:
-                chunk = await audio_queue.get()
-                await session.send_audio(chunk)
-        except KeyboardInterrupt:
-            pass
-        finally:
-            await session.finish()
-
-
-def _main() -> None:
-    import argparse
-
-    parser = argparse.ArgumentParser(description="Deepgram live STT mic test")
-    parser.add_argument(
-        "--language", default=LANGUAGE_MODE,
-        help="Deepgram language param: 'multi', 'fr', 'en' (default: %(default)s)",
-    )
-    args = parser.parse_args()
-
-    asyncio.run(_stream_microphone(args.language))
-
-
-if __name__ == "__main__":
-    _main()
+def annotate_low_confidence(result: TranscriptResult) -> str:
+    if not result.words:
+        return result.transcript
+    low_conf_ids = {id(w) for w in result.low_confidence_words()}
+    pieces = [
+        f"{(w.punctuated_word or w.word)}{LOW_CONF_MARK}" if id(w) in low_conf_ids else (w.punctuated_word or w.word)
+        for w in result.words
+    ]
+    return " ".join(pieces)

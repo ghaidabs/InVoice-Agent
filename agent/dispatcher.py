@@ -69,16 +69,16 @@ async def _resolve_single_client(client_name: str, saas: MockSaasClient):
             spoken_text=f"No client found matching '{client_name}'.",
             error="client_not_found",
         )
-    if len(matches) > 1:
-        names = ", ".join(f"{m['first_name']} {m['last_name']}" for m in matches)
-        question = f"I found several clients matching that name: {names}. Which one did you mean?"
-        return VoiceResponse(
-            success=False,
-            spoken_text=question,
-            clarification_question=question,
-            display_data=matches,
-        )
-    return matches[0]
+    if len(matches) == 1 and "_fuzzy_score" not in matches[0]:
+        return matches[0]
+
+    names = ", ".join(f"{m['first_name']} {m['last_name']}" for m in matches)
+    question = (
+        f"Did you mean {names}? Please confirm."
+        if len(matches) == 1
+        else f"I found several clients matching that name: {names}. Which one did you mean?"
+    )
+    return VoiceResponse(success=False, spoken_text=question, clarification_question=question, display_data=matches)
 
 async def _lookup_client(intent: LookupClientIntent, saas: MockSaasClient) -> VoiceResponse:
     result = await _resolve_single_client(intent.client_name, saas)

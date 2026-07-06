@@ -5,29 +5,52 @@ from mock.db import (
     create_invoice, add_line_item,
     build_invoice_draft, confirm_invoice_draft,
 )
-
+from agent.normalizer import normalize_invoice_number
+from rag.indexer import ensure_client_index, ensure_product_index
+from rag.retriever import find_similar
 
 class MockSaasClient:
-    def __init__(self, company_id: int, user_id: int):
+    def __init__(self, company_id: int, user_id: int, company_slug: str | None = None):
         self.company_id = company_id
         self.user_id = user_id
+        self.company_slug = company_slug
 
 
     async def lookup_client(self, name: str) -> list[dict]:
-        return search_clients_by_name(name, self.company_id)
+        exact = search_clients_by_name(name, self.company_id)
+        if exact:
+            return exact
+        ensure_client_index(self.company_id)
+        candidates = find_similar("client", self.company_id, name, top_k=3)
+        return [
+            {**c, "_fuzzy_score": cand["score"]}
+            for cand in candidates
+            if (c := get_client_by_id(cand["id"], self.company_id))
+        ]
 
     async def get_client(self, client_id: int) -> dict | None:
         return get_client_by_id(client_id, self.company_id)
 
 
     async def lookup_product(self, name: str) -> list[dict]:
-        return search_products_by_name(name, self.company_id)
+        exact = search_products_by_name(name, self.company_id)
+        if exact:
+            return exact
+        ensure_product_index(self.company_id)
+        candidates = find_similar("product", self.company_id, name, top_k=3)
+        return [
+            {**p, "_fuzzy_score": cand["score"]}
+            for cand in candidates
+            if (p := get_product_by_id(cand["id"], self.company_id))
+        ]
 
     async def get_product(self, product_id: int) -> dict | None:
         return get_product_by_id(product_id, self.company_id)
 
 
     async def get_invoice(self, invoice_number: str) -> dict | None:
+        if self.company_slug:
+            invoice_number = normalize_invoice_number(invoice_number, self.company_slug) or invoice_number
         return get_invoice_by_number(invoice_number, self.company_id)
 
     async def get_invoices_by_client(self, client_name: str) -> list[dict]:
@@ -73,21 +96,10 @@ class MockSaasClient:
         return confirm_invoice_draft(draft)
 
         
-    async def add_line_item(
-        self,
-        invoice_number: str,
-        designation: str,
-        quantity: float,
-        unit_price: float,
-        unit: str,
-        description: str | None = None,
-    ) -> dict | None:
-        return add_line_item(
-            invoice_number=invoice_number,
-            company_id=self.company_id,
-            designation=designation,
-            quantity=quantity,
-            unit_price=unit_price,
-            unit=unit,
-            description=description,
-        )
+    async def add_line_item(self, invoice_number: str, designation: str, quantity: float,
+                             unit_price: float, unit: str, description: str | None = None) -> dict | None:
+        if self.company_slug:
+            invoice_number = normalize_invoice_number(invoice_number, self.company_slug) or invoice_number
+        return add_line_item(invoice_number=invoice_number, company_id=self.company_id,
+                              designation=designation, quantity=quantity, unit_price=unit_price,
+                              unit=unit, description=description)

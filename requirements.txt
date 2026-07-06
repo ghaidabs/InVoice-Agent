@@ -14,3 +14,4 @@ presidio-anonymizer
 spacy
 langdetect
 deepgram-sdk
+sentence-transformers

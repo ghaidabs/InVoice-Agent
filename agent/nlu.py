@@ -72,6 +72,16 @@ def extract_intent(transcript: str):
     raw["raw_transcript"] = transcript
     raw.setdefault("confidence", 0.0) # if confidence is not present, set it to 0.0
 
+    if raw.get("invoice_number"):
+        normalized = normalize_invoice_number(raw["invoice_number"], company_slug) if company_slug else raw["invoice_number"]
+        if normalized is None:
+            raw["invoice_number"] = None
+            raw["confidence"] = min(raw["confidence"], 0.4)
+            if "invoice_number" not in raw["low_confidence_fields"]:
+                raw["low_confidence_fields"].append("invoice_number")
+        else:
+            raw["invoice_number"] = normalized
+
     # rebuild line_items into LineItemInput objects if present
     if "articles" in raw and raw["articles"] is not None:
         raw["articles"] = [LineItemInput(**item) for item in raw["articles"]]
@@ -87,11 +97,12 @@ def extract_intent(transcript: str):
         )
 
 def extract_intent_with_context(transcript: str, session: "SessionState"):
+    company_slug = session.user.company_slug
     if session.awaiting_field and session.pending_transcript:
         combined = (
             f"{session.pending_transcript}. "
             f"The user is now answering the question \"What is the {session.awaiting_field}?\" "
             f"with: \"{transcript}\". Use this value directly as the {session.awaiting_field} — "
         )
-        return extract_intent(combined)
-    return extract_intent(transcript)
+        return extract_intent(combined, company_slug=company_slug)
+    return extract_intent(transcript, company_slug=company_slug)

@@ -58,7 +58,7 @@ def _print_response(resp) -> None:
 async def repl() -> None:
     user_id = _select_user()
     session = _build_session(user_id)
-    saas = MockSaasClient(company_id=session.user.company_id, user_id=session.user.user_id)
+    saas = MockSaasClient(company_id=session.user.company_id, user_id=session.user.user_id, company_slug=session.user.company_slug)
 
     print(
         f"\nSession started — user_id={session.user.user_id} "
