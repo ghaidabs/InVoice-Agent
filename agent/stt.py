@@ -1,0 +1,430 @@
+"""
+Deepgram live streaming STT integration.
+
+Targets deepgram-sdk 7.x — AsyncDeepgramClient().listen.v1.connect(**kwargs)
+as an async context manager, EventType instead of LiveTranscriptionEvents.
+
+Docs used as source of truth:
+- https://developers.deepgram.com/docs/live-streaming-audio
+- https://developers.deepgram.com/docs/getting-started-with-the-streaming-test-suite
+- https://developers.deepgram.com/docs/understand-endpointing-interim-results
+- https://developers.deepgram.com/docs/understanding-end-of-speech-detection
+- https://developers.deepgram.com/docs/utterance-end
+- https://developers.deepgram.com/reference/speech-to-text/listen-streaming (keyterm)
+
+Model: nova-3
+Languages: fr / en
+Confidence: transcript-level (alternatives[0].confidence) AND per-word
+(alternatives[0].words[i].confidence) are both captured.
+
+Utterance assembly, per Deepgram's documented algorithm:
+  - Append each is_final=true transcript to a buffer.
+  - When speech_final=true arrives, the buffer is the complete utterance —
+    emit it, then clear the buffer.
+  - If an UtteranceEnd message arrives and speech_final never fired (can
+    happen with background noise), emit whatever is in the buffer anyway.
+  - An UtteranceEnd that arrives AFTER speech_final=true already fired is
+    redundant and ignored.
+
+LiveKit note: this module talks to Deepgram directly for now. LiveKitAudioSource
+is the seam for when LiveKit audio frames get piped in later.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+
+from dotenv import load_dotenv
+load_dotenv()
+
+from dataclasses import dataclass, field
+from typing import Awaitable, Callable, Optional
+
+from deepgram import AsyncDeepgramClient
+from deepgram.core.events import EventType
+
+from agent.validator import redact_pii
+
+logger = logging.getLogger(__name__)
+
+DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
+
+# --------------------------------------------------------------------------
+# Config
+# --------------------------------------------------------------------------
+
+LANGUAGE_MODE = os.environ.get("DEEPGRAM_LANGUAGE_MODE", "multi")
+
+# Invoice numbers follow COMPANYSLUG_F{YYYYMM}-{SEQUENCE}, e.g. ACME_F202606-001
+# (see agent/prompts/intent_extraction.txt). Nova-3 supports keyterm prompting
+# to bias recognition toward specific vocabulary/formats. We don't have real
+# company/product/client names to feed in (mock data only), but the invoice
+# number FORMAT itself is a stable, known pattern worth hinting.
+DEFAULT_KEYTERMS = ["ACME", "NOVA"]
+
+DEFAULT_STT_CONFIG = {
+    "model": "nova-3",
+    "language": LANGUAGE_MODE,
+    "smart_format": True,
+    "punctuate": True,
+    "numerals": True,
+    "interim_results": True,   # required for utterance_end_ms to function
+    "utterance_end_ms": "1000",
+    "vad_events": True,
+    "endpointing": 300,
+    "encoding": "linear16",
+    "sample_rate": 16000,
+    "channels": 1,
+    "keyterm": DEFAULT_KEYTERMS,
+}
+
+WORD_CONFIDENCE_FLOOR = 0.55
+TRANSCRIPT_CONFIDENCE_FLOOR = 0.6
+
+
+# --------------------------------------------------------------------------
+# Data model
+# --------------------------------------------------------------------------
+
+@dataclass
+class WordResult:
+    word: str
+    punctuated_word: str
+    start: float
+    end: float
+    confidence: float
+
+
+@dataclass
+class TranscriptResult:
+    """A complete, assembled utterance — not a raw Deepgram fragment."""
+    transcript: str
+    confidence: float                 # average of per-word confidences (see note below)
+    words: list[WordResult] = field(default_factory=list)
+    language: Optional[str] = None
+
+    @property
+    def low_confidence(self) -> bool:
+        return self.confidence < TRANSCRIPT_CONFIDENCE_FLOOR
+
+    def low_confidence_words(self) -> list[WordResult]:
+        return [w for w in self.words if w.confidence < WORD_CONFIDENCE_FLOOR]
+
+
+TranscriptCallback = Callable[[TranscriptResult], Awaitable[None]]
+ErrorCallback = Callable[[Exception], Awaitable[None]]
+
+
+# --------------------------------------------------------------------------
+# STT Session
+# --------------------------------------------------------------------------
+
+class STTSession:
+    """
+    One Deepgram live-streaming connection for one voice turn/call.
+
+    Emits exactly one TranscriptResult per completed utterance via
+    on_transcript — interim/is_final fragments are accumulated internally
+    per Deepgram's documented reconstruction algorithm and never surfaced
+    individually.
+    """
+
+    def __init__(
+        self,
+        on_transcript: TranscriptCallback,
+        on_error: Optional[ErrorCallback] = None,
+        config: Optional[dict] = None,
+        api_key: Optional[str] = None,
+    ):
+        key = api_key or DEEPGRAM_API_KEY
+        if not key:
+            raise RuntimeError(
+                "DEEPGRAM_API_KEY is not set. Add it to .env (see .env.example)."
+            )
+
+        self._config = {**DEFAULT_STT_CONFIG, **(config or {})}
+        self._on_transcript = on_transcript
+        self._on_error = on_error
+        self._client = AsyncDeepgramClient(api_key=key)
+        self._connect_ctx = None
+        self._connection = None
+        self._listen_task: Optional[asyncio.Task] = None
+        self._started = False
+
+        # Utterance accumulation state (per documented algorithm)
+        self._segment_buffer: list[str] = []
+        self._word_buffer: list[WordResult] = []
+        self._last_language: Optional[str] = None
+        self._speech_final_seen_for_current_utterance = False
+
+    async def start(self) -> None:
+        if self._started:
+            return
+
+        self._connect_ctx = self._client.listen.v1.connect(**self._config)
+        self._connection = await self._connect_ctx.__aenter__()
+
+        self._connection.on(EventType.MESSAGE, self._handle_message)
+        self._connection.on(EventType.ERROR, self._handle_error)
+        self._connection.on(EventType.CLOSE, self._handle_close)
+        self._connection.on(EventType.OPEN, self._handle_open)
+
+        self._listen_task = asyncio.create_task(self._connection.start_listening())
+
+        self._started = True
+        logger.info(
+            "Deepgram STT session started (model=%s, language=%s)",
+            self._config["model"], self._config["language"],
+        )
+
+    async def send_audio(self, chunk: bytes) -> None:
+        if not self._started or self._connection is None:
+            raise RuntimeError("STTSession.start() must be awaited before sending audio.")
+        await self._connection.send_media(chunk)
+
+    async def finish(self) -> None:
+        if self._connection is not None and self._started:
+            try:
+                await self._connection.send_close_stream()
+            except Exception:
+                pass
+        if self._listen_task is not None:
+            self._listen_task.cancel()
+            try:
+                await self._listen_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        if self._connect_ctx is not None:
+            await self._connect_ctx.__aexit__(None, None, None)
+        self._started = False
+
+    # -- Deepgram event handlers -------------------------------------------
+
+    def _handle_open(self, *args, **kwargs) -> None:
+        logger.debug("Deepgram: connection open")
+
+    def _handle_message(self, message) -> None:
+        msg_type = getattr(message, "type", None)
+
+        if msg_type == "Results":
+            asyncio.create_task(self._on_results(message))
+        elif msg_type == "UtteranceEnd":
+            asyncio.create_task(self._on_utterance_end())
+        elif msg_type == "SpeechStarted":
+            logger.debug("Deepgram: speech started")
+
+    async def _on_results(self, result) -> None:
+        """Handle one Results message: accumulate on is_final, flush on speech_final."""
+        try:
+            alt = result.channel.alternatives[0]
+            transcript_text = alt.transcript
+
+            # Interim (is_final=False): not durable yet, don't buffer.
+            if not result.is_final:
+                return
+
+            # is_final=True: durable segment — append to buffer regardless
+            # of whether it's empty (empty is_final segments can occur but
+            # contribute nothing).
+            if transcript_text:
+                self._segment_buffer.append(transcript_text)
+                self._word_buffer.extend(
+                    WordResult(
+                        word=w.word,
+                        punctuated_word=getattr(w, "punctuated_word", w.word),
+                        start=w.start,
+                        end=w.end,
+                        confidence=w.confidence,
+                    )
+                    for w in (alt.words or [])
+                )
+                if getattr(alt, "languages", None):
+                    self._last_language = alt.languages[0]
+
+            if result.speech_final:
+                self._speech_final_seen_for_current_utterance = True
+                await self._flush_utterance()
+
+        except Exception as exc:
+            logger.exception("Error handling Deepgram Results message")
+            if self._on_error:
+                await self._on_error(exc)
+
+    async def _on_utterance_end(self) -> None:
+        """
+        UtteranceEnd fires ~1s after the last finalized word. If speech_final
+        already flushed the buffer, this is redundant — ignore it. Otherwise
+        (e.g. background noise suppressed speech_final), flush whatever is
+        buffered, per Deepgram's documented fallback.
+        """
+        if self._speech_final_seen_for_current_utterance:
+            return
+        if self._segment_buffer:
+            await self._flush_utterance()
+
+    async def _flush_utterance(self) -> None:
+        full_transcript = " ".join(s for s in self._segment_buffer if s).strip()
+        words = list(self._word_buffer)
+
+        # Reset buffers for the next utterance.
+        self._segment_buffer = []
+        self._word_buffer = []
+        self._speech_final_seen_for_current_utterance = False
+
+        if not full_transcript:
+            return
+
+        confidences = [w.confidence for w in words]
+        overall_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+
+        parsed = TranscriptResult(
+            transcript=redact_pii(full_transcript),
+            confidence=overall_confidence,
+            words=words,
+            language=self._last_language or self._config.get("language"),
+        )
+
+        await self._on_transcript(parsed)
+
+    def _handle_error(self, error) -> None:
+        logger.error("Deepgram STT error: %s", error)
+        if self._on_error:
+            asyncio.create_task(
+                self._on_error(error if isinstance(error, Exception) else RuntimeError(str(error)))
+            )
+
+    def _handle_close(self, *args, **kwargs) -> None:
+        logger.info("Deepgram STT connection closed")
+        self._started = False
+
+
+# --------------------------------------------------------------------------
+# LiveKit integration seam (not wired up yet)
+# --------------------------------------------------------------------------
+
+class LiveKitAudioSource:
+    """
+    Placeholder adapter: will pull PCM frames off a LiveKit AudioStream and
+    push them into an STTSession. Not implemented yet.
+
+        source = LiveKitAudioSource(livekit_audio_stream, stt_session)
+        await source.run()
+    """
+
+    def __init__(self, audio_stream, stt_session: STTSession):
+        self._audio_stream = audio_stream
+        self._stt_session = stt_session
+
+    async def run(self) -> None:
+        raise NotImplementedError(
+            "LiveKit audio piping not implemented yet — integrate once "
+            "LiveKit's Python agent AudioStream API is wired into this project."
+        )
+
+
+# --------------------------------------------------------------------------
+# Standalone CLI test harness — microphone only
+#
+# Output per utterance, exactly:
+#   start speaking
+#   end speaking
+#   Returned Transcript : ...
+#   Score / confidence (all / per word) : ...
+#
+# Usage:
+#   python -m agent.stt
+#   python -m agent.stt --language fr
+# --------------------------------------------------------------------------
+
+async def _print_transcript(result: TranscriptResult) -> None:
+    print("end speaking")
+    print(f"Returned Transcript : {result.transcript}")
+    per_word = ", ".join(f"{w.word}={w.confidence:.2f}" for w in result.words)
+    print(f"Score / confidence (all / per word) : {result.confidence:.3f} / [{per_word}]")
+
+
+async def _print_error(error: Exception) -> None:
+    print(f"[error] {error}")
+
+
+async def _stream_microphone(language: str) -> None:
+    try:
+        import sounddevice as sd
+    except ImportError:
+        raise SystemExit(
+            "sounddevice is required to run this test. Install with: pip install sounddevice numpy"
+        )
+
+    session = STTSession(
+        on_transcript=_print_transcript,
+        on_error=_print_error,
+        config={"sample_rate": 16000, "channels": 1, "language": language},
+    )
+    await session.start()
+
+    loop = asyncio.get_event_loop()
+    audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
+    speaking_state = {"active": False}
+
+    def _callback(indata, frames, time_info, status):
+        if status:
+            logger.debug("sounddevice status: %s", status)
+        loop.call_soon_threadsafe(audio_queue.put_nowait, bytes(indata))
+
+    # "start speaking" is printed on SpeechStarted; we patch the handler
+    # locally here since the harness wants that line printed too.
+    original_handle_message = session._handle_message
+
+    def _patched_handle_message(message):
+        if getattr(message, "type", None) == "SpeechStarted" and not speaking_state["active"]:
+            speaking_state["active"] = True
+            print("start speaking")
+        if getattr(message, "type", None) in ("UtteranceEnd",):
+            speaking_state["active"] = False
+        original_handle_message(message)
+        if getattr(message, "type", None) == "Results":
+            try:
+                if message.channel.alternatives[0].transcript and message.speech_final:
+                    speaking_state["active"] = False
+            except Exception:
+                pass
+
+    session._handle_message = _patched_handle_message
+    session._connection.on(EventType.MESSAGE, _patched_handle_message)
+
+    stream = sd.RawInputStream(
+        samplerate=16000,
+        channels=1,
+        dtype="int16",
+        blocksize=1024,
+        callback=_callback,
+    )
+
+    with stream:
+        try:
+            while True:
+                chunk = await audio_queue.get()
+                await session.send_audio(chunk)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            await session.finish()
+
+
+def _main() -> None:
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Deepgram live STT mic test")
+    parser.add_argument(
+        "--language", default=LANGUAGE_MODE,
+        help="Deepgram language param: 'multi', 'fr', 'en' (default: %(default)s)",
+    )
+    args = parser.parse_args()
+
+    asyncio.run(_stream_microphone(args.language))
+
+
+if __name__ == "__main__":
+    _main()
