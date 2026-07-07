@@ -1,4 +1,3 @@
-"""Thin wrapper so indexer/retriever don't care which embedding backend is in use."""
 from functools import lru_cache
 
 _MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"

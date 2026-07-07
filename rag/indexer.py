@@ -1,8 +1,3 @@
-"""
-Per-company vector index for clients/products. Falls back to an in-memory
-index when QDRANT_ENDPOINT isn't set, so this works in local/dev/mock
-environments without a live Qdrant instance — same call interface either way.
-"""
 import os
 from rag.embeddings import embed
 
