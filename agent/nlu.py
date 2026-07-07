@@ -14,6 +14,8 @@ from schemas.intents import (
     UnknownIntent,
     LineItemInput,
 )
+from dotenv import load_dotenv
+load_dotenv()
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "intent_extraction.txt"
 SYSTEM_PROMPT = PROMPT_PATH.read_text()
