@@ -1,15 +1,3 @@
-"""
-Layer 4: RAG fuzzy-match tests (rag/indexer.py, rag/retriever.py).
-
-Two paths:
-1. In-memory (default, no QDRANT_ENDPOINT) — runs always.
-2. Live Qdrant — only runs if QDRANT_ENDPOINT is set, since it needs a
-   real running instance.
-
-First run downloads the sentence-transformers model (~90MB), which is slow.
-Consider running once locally to warm the HF cache before relying on this
-in CI, rather than re-downloading every run.
-"""
 import os
 import importlib
 import pytest

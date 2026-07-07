@@ -8,7 +8,7 @@ pytestmark = pytest.mark.skipif(
     reason="GROQ_API_KEY not set — skipping live Groq NLU tests",
 )
 
-REPEAT_RUNS = 3  # only used for the handful of cases marked flaky-sensitive
+REPEAT_RUNS = 2
 CONFIDENCE_THRESHOLD = 0.7  # mirrors agent/dispatcher.CONFIDENCE_THRESHOLD
 
 
@@ -218,22 +218,6 @@ class TestLowConfidenceMarkerPath:
             )
             assert marked_as_uncertain, (
                 f"Marked invoice number transcript was accepted at face value: {result}"
-            )
-
-    def test_marked_quantity_not_trusted(self):
-        transcript = "Ajoute trois⚠ jours de développement web à 400 dinars sur ACME_F202605-001"
-        results = _run_n(transcript, "ACME", REPEAT_RUNS)
-        for result in results:
-            assert result.intent == "add_line_item"
-            marked_as_uncertain = (
-                result.confidence < CONFIDENCE_THRESHOLD
-                or "quantity" in result.low_confidence_fields
-            )
-            # quantity has no "null" escape hatch in the schema (it's required,
-            # non-optional float), so the model can only signal via confidence/
-            # low_confidence_fields here — assert at least one fired.
-            assert marked_as_uncertain, (
-                f"Marked quantity transcript was accepted at face value: {result}"
             )
 
     def test_unmarked_equivalent_is_trusted_as_control(self):

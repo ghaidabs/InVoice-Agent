@@ -14,6 +14,7 @@ from schemas.intents import (
     UnknownIntent,
     LineItemInput,
 )
+from agent.normalizer import normalize_invoice_number
 from dotenv import load_dotenv
 load_dotenv()
 
