@@ -18,12 +18,10 @@ from agent.validator import redact_pii
 logger = logging.getLogger(__name__)
 
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
-LANGUAGE_MODE = os.environ.get("DEEPGRAM_LANGUAGE_MODE", "multi")
-
 
 DEFAULT_STT_CONFIG = {
     "model": "nova-3",
-    "language": LANGUAGE_MODE,
+    "language": "multi",
     "smart_format": True,
     "punctuate": True,
     "numerals": True,

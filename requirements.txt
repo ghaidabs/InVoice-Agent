@@ -15,3 +15,5 @@ spacy
 langdetect
 deepgram-sdk
 sentence-transformers
+pytest
+pytest-asyncio

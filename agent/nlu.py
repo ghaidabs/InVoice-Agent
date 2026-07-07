@@ -32,7 +32,7 @@ _INTENT_MODEL_MAP = {
 }
 
 
-def extract_intent(transcript: str):
+def extract_intent(transcript: str, company_slug: str | None = None, language: str = "fr"):
     safe_transcript = redact_pii(transcript)
 
     response = client.chat.completions.create(
@@ -70,7 +70,9 @@ def extract_intent(transcript: str):
 
     model_cls = _INTENT_MODEL_MAP[intent_type] # extract the model class based on the intent type
     raw["raw_transcript"] = transcript
+    raw["language"] = language
     raw.setdefault("confidence", 0.0) # if confidence is not present, set it to 0.0
+    raw.setdefault("low_confidence_fields", [])
 
     if raw.get("invoice_number"):
         normalized = normalize_invoice_number(raw["invoice_number"], company_slug) if company_slug else raw["invoice_number"]

@@ -18,14 +18,13 @@ from agent.validator import redact_pii
 logger = logging.getLogger(__name__)
 
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
-LANGUAGE_MODE = os.environ.get("DEEPGRAM_LANGUAGE_MODE", "multi")
 
 # Invoice numbers follow COMPANYSLUG_F{YYYYMM}-{SEQUENCE}, 
 DEFAULT_KEYTERMS = ["ACME", "NOVA"]
 
 DEFAULT_STT_CONFIG = {
     "model": "nova-3",
-    "language": LANGUAGE_MODE,
+    "language": "multi",
     "smart_format": True,
     "punctuate": True,
     "numerals": True,
@@ -339,10 +338,8 @@ def _main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(description="Deepgram live STT mic test")
-    parser.add_argument(
-        "--language", default=LANGUAGE_MODE,
-        help="Deepgram language param: 'multi', 'fr', 'en' (default: %(default)s)",
-    )
+    parser.add_argument("--language", default="multi")
+    
     args = parser.parse_args()
 
     asyncio.run(_stream_microphone(args.language))

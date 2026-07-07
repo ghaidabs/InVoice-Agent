@@ -16,6 +16,7 @@ class BaseIntent(BaseModel):
     confidence: float = 0.0
     low_confidence_fields: list[str] = []
     raw_transcript: str = ""
+    language: str = "fr"
 
 class LineItemInput(BaseModel):
     product_name: str
