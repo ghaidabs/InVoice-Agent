@@ -6,12 +6,6 @@ from mock.db import (
     add_line_item,
 )
 
-# Known fixture data from mock/clients.json, mock/products.json, mock/invoices.json:
-# company_id=1 (ACME): clients 1,2 (Ahmed Salem, Sarra Trabelsi); products 1,2
-# company_id=2 (NOVA):  clients 3,4 (Karim Mzoughi, Nour Gharbi); products 3,4,5
-# invoice ACME_F202605-001 belongs to company_id=1
-# invoice NOVA_F202606-001 belongs to company_id=2
-
 
 def test_get_client_by_id_wrong_company_returns_none():
     # client 3 (Karim) belongs to company 2 — requesting under company 1 must fail

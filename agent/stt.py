@@ -1,19 +1,15 @@
 from __future__ import annotations
-
 import asyncio
 import logging
 import os
-
-from dotenv import load_dotenv
-load_dotenv()
-
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
-
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
-
 from agent.validator import redact_pii
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +32,6 @@ DEFAULT_STT_CONFIG = {
 
 WORD_CONFIDENCE_FLOOR = 0.55
 TRANSCRIPT_CONFIDENCE_FLOOR = 0.6
-
 
 
 @dataclass
@@ -66,7 +61,6 @@ class TranscriptResult:
 TranscriptCallback = Callable[[TranscriptResult], Awaitable[None]]
 ErrorCallback = Callable[[Exception], Awaitable[None]]
 SpeakingStateCallback = Callable[[bool], Awaitable[None]]  # True = started, False = ended
-
 
 
 class STTSession:
@@ -247,7 +241,6 @@ class LiveKitAudioSource:
         source = LiveKitAudioSource(livekit_audio_stream, stt_session)
         await source.run()
     """
-
     def __init__(self, audio_stream, stt_session: STTSession):
         self._audio_stream = audio_stream
         self._stt_session = stt_session
@@ -257,7 +250,6 @@ class LiveKitAudioSource:
             "LiveKit audio piping not implemented yet — integrate once "
             "LiveKit's Python agent AudioStream API is wired into this project."
         )
-
 
 
 def build_keyterms_for_company(company_id: int, extra: list[str] | None = None, max_terms: int = 50) -> list[str]:

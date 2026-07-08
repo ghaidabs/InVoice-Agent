@@ -17,3 +17,4 @@ deepgram-sdk
 sentence-transformers
 pytest
 pytest-asyncio
+rapidfuzz

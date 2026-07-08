@@ -1,25 +1,20 @@
 from __future__ import annotations
-
 import asyncio
 import logging
 import os
-
-from dotenv import load_dotenv
-load_dotenv()
-
 from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
-
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
-
 from agent.validator import redact_pii
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
 
-# Invoice numbers follow COMPANYSLUG_F{YYYYMM}-{SEQUENCE}, 
 DEFAULT_KEYTERMS = ["ACME", "NOVA"]
 
 DEFAULT_STT_CONFIG = {
@@ -70,7 +65,6 @@ class TranscriptResult:
 TranscriptCallback = Callable[[TranscriptResult], Awaitable[None]]
 ErrorCallback = Callable[[Exception], Awaitable[None]]
 SpeakingStateCallback = Callable[[bool], Awaitable[None]]  # True = started, False = ended
-
 
 
 class STTSession:

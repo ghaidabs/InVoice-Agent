@@ -54,7 +54,7 @@ def get_client_by_id(client_id: int, company_id: int) -> dict | None:
     client = _clients.get(client_id)
     if client and client["company_id"] == company_id:
         return deepcopy(client)
-    return None                                       # wrong company → None, not a leak
+    return None                                       
 
 
 def search_clients_by_name(name: str, company_id: int) -> list:

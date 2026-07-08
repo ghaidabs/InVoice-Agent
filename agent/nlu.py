@@ -16,6 +16,7 @@ from schemas.intents import (
 )
 from agent.normalizer import normalize_invoice_number
 from dotenv import load_dotenv
+
 load_dotenv()
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "intent_extraction.txt"
@@ -71,10 +72,10 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
             raw_transcript=transcript,
         )
 
-    model_cls = _INTENT_MODEL_MAP[intent_type] # extract the model class based on the intent type
+    model_class = _INTENT_MODEL_MAP[intent_type]
     raw["raw_transcript"] = transcript
     raw["language"] = language
-    raw.setdefault("confidence", 0.0) # if confidence is not present, set it to 0.0
+    raw.setdefault("confidence", 0.0) 
     raw.setdefault("low_confidence_fields", [])
 
     if raw.get("invoice_number"):
@@ -92,7 +93,7 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
         raw["articles"] = [LineItemInput(**item) for item in raw["articles"]]
 
     try:
-        return model_cls(**raw) # validated pydantic object
+        return model_class(**raw) # validated pydantic object
     except Exception:
         return UnknownIntent(
             intent=IntentType.UNKNOWN,

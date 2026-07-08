@@ -1,6 +1,5 @@
 import logging
 import re
-
 from langdetect import detect
 from presidio_analyzer import AnalyzerEngine
 from presidio_analyzer.nlp_engine import NlpEngineProvider
@@ -10,8 +9,6 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LANGUAGE = "fr"
 SUPPORTED_LANGUAGES = ["en", "fr"]
-
-
 PII_ENTITIES = ["PHONE_NUMBER", "EMAIL_ADDRESS", "CREDIT_CARD", "IBAN_CODE"]
 
 _nlp_engine = NlpEngineProvider(
@@ -27,7 +24,7 @@ _nlp_engine = NlpEngineProvider(
 _analyzer = AnalyzerEngine(nlp_engine=_nlp_engine, supported_languages=SUPPORTED_LANGUAGES)
 _anonymizer = AnonymizerEngine()
 
-# Tunisian "matricule fiscale" format, e.g. 1234567A/P/M/000.
+# Tunisian "matricule fiscale" format
 _MATRICULE_FISCALE_RE = re.compile(r"\b\d{7}[A-Za-z]/[A-Za-z]/[A-Za-z]/\d{3}\b")
 
 

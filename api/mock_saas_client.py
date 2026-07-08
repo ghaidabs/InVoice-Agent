@@ -6,8 +6,10 @@ from mock.db import (
     build_invoice_draft, confirm_invoice_draft,
 )
 from agent.normalizer import normalize_invoice_number
+from agent.fuzzy import find_fuzzy
 from rag.indexer import ensure_client_index, ensure_product_index
 from rag.retriever import find_similar
+
 
 class MockSaasClient:
     def __init__(self, company_id: int, user_id: int, company_slug: str | None = None):
@@ -20,6 +22,12 @@ class MockSaasClient:
         exact = search_clients_by_name(name, self.company_id)
         if exact:
             return exact
+
+        all_clients = get_all_clients(self.company_id, page=1, size=10_000)["items"]
+        fuzzy = find_fuzzy(name, all_clients, lambda c: f"{c['first_name']} {c['last_name']}")
+        if fuzzy:
+            return fuzzy
+
         ensure_client_index(self.company_id)
         candidates = find_similar("client", self.company_id, name, top_k=3)
         return [
@@ -36,6 +44,10 @@ class MockSaasClient:
         exact = search_products_by_name(name, self.company_id)
         if exact:
             return exact
+
+        all_products = get_all_products(self.company_id, page=1, size=10_000)["items"]
+        fuzzy = find_fuzzy(name, all_products, lambda p: p["designation"])
+    
         ensure_product_index(self.company_id)
         candidates = find_similar("product", self.company_id, name, top_k=3)
         return [

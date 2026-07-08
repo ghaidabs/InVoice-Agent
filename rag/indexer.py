@@ -1,14 +1,14 @@
 import os
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
-
 from rag.embeddings import embed
-
 from dotenv import load_dotenv
+
 load_dotenv()
 
 QDRANT_ENDPOINT = os.environ.get("QDRANT_ENDPOINT")
 QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY")
+
 
 _qdrant_client: QdrantClient | None = None
 _ensured_collections: set[str] = set()
@@ -26,7 +26,7 @@ def get_qdrant() -> QdrantClient:
 
 
 def collection_name(entity_type: str, company_id: int) -> str:
-    return f"{entity_type}_{company_id}"
+    return f"{entity_type}s_{company_id}"
 
 
 def _ensure_collection(name: str, vector_size: int) -> None:

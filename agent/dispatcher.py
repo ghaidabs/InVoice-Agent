@@ -20,15 +20,13 @@ from templates.invoice import (
 )
 from templates.client_lookup import build_client_spoken
 from templates.payment_status import build_payment_status_spoken
-from templates.languages import t
+from templates.clarification import t
 
 CONFIDENCE_THRESHOLD = 0.7
 
 
 async def dispatch(intent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
-    # Used for the branches below that don't otherwise have an intent-carried
-    # language to localize with (confirm/cancel/unknown/unhandled fallback).
-    language = getattr(intent, "language", "en")
+    language = getattr(intent, "language", "fr")
 
     if intent.confidence < CONFIDENCE_THRESHOLD:
         prompt = _clarification_prompt(intent)
@@ -171,8 +169,7 @@ async def _check_invoice(intent: CheckInvoiceIntent, saas: MockSaasClient) -> Vo
 
 
 async def _create_invoice_draft(
-    intent: CreateInvoiceIntent, saas: MockSaasClient, session: SessionState
-) -> VoiceResponse:
+    intent: CreateInvoiceIntent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
     result = await _resolve_single_client(intent.client_name, saas, intent.language)
     if isinstance(result, VoiceResponse):
         return result

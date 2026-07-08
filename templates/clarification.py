@@ -64,7 +64,6 @@ _STRINGS: dict[str, dict[str, str]] = {
 
 
 def t(key: str, language: str | None, **kwargs: Any) -> str:
-    """Look up a localized dispatcher-level string and format it with kwargs."""
     lang = language if language in _STRINGS else DEFAULT_LANGUAGE
     template = _STRINGS[lang].get(key) or _STRINGS[DEFAULT_LANGUAGE].get(key, key)
     return template.format(**kwargs)

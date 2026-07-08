@@ -14,7 +14,7 @@ def normalize_invoice_number(raw: str | None, company_slug: str) -> str | None:
     digits = "".join(_DIGIT_RE.findall(tail))
 
     if len(digits) < 9:
-        return None  # don't guess missing digits — surface for clarification instead
+        return None  # no guessing for missing digits, surface for clarification instead
 
     yyyymm, seq = digits[:6], digits[6:9]
     return f"{slug}_F{yyyymm}-{seq}"
