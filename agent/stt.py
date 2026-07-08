@@ -6,7 +6,6 @@ from dataclasses import dataclass, field
 from typing import Awaitable, Callable, Optional
 from deepgram import AsyncDeepgramClient
 from deepgram.core.events import EventType
-from agent.validator import redact_pii
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -212,7 +211,7 @@ class STTSession:
         overall_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
         parsed = TranscriptResult(
-            transcript=redact_pii(full_transcript),
+            transcript=full_transcript,  
             confidence=overall_confidence,
             words=words,
             language=self._last_language or self._config.get("language"),

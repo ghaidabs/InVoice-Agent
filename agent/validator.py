@@ -10,6 +10,16 @@ logger = logging.getLogger(__name__)
 DEFAULT_LANGUAGE = "fr"
 SUPPORTED_LANGUAGES = ["en", "fr"]
 PII_ENTITIES = ["PHONE_NUMBER", "EMAIL_ADDRESS", "CREDIT_CARD", "IBAN_CODE"]
+_PII_TRIGGER_RE = re.compile(
+    r"\s*\b("
+    r"email|e-?mail|adresse (e-?)?mail|courriel|"
+    r"phone( number)?|téléphone|telephone|numéro de téléphone|numero de telephone|"
+    r"matricule( fiscale)?|tax id|tax number|"
+    r"iban|credit card|carte (bancaire|de crédit)"
+    r")\b.*$",
+    re.IGNORECASE,
+)
+_MATRICULE_FISCALE_RE = re.compile(r"\b\d{7}[A-Za-z]/[A-Za-z]/[A-Za-z]/\d{3}\b") # Tunisian matricule fiscale format
 
 _nlp_engine = NlpEngineProvider(
     nlp_configuration={
@@ -24,9 +34,6 @@ _nlp_engine = NlpEngineProvider(
 _analyzer = AnalyzerEngine(nlp_engine=_nlp_engine, supported_languages=SUPPORTED_LANGUAGES)
 _anonymizer = AnonymizerEngine()
 
-# Tunisian "matricule fiscale" format
-_MATRICULE_FISCALE_RE = re.compile(r"\b\d{7}[A-Za-z]/[A-Za-z]/[A-Za-z]/\d{3}\b")
-
 
 def _detect_language(text: str) -> str:
     try:
@@ -36,13 +43,18 @@ def _detect_language(text: str) -> str:
     return lang if lang in SUPPORTED_LANGUAGES else DEFAULT_LANGUAGE
 
 
+def _strip_after_trigger(text: str) -> str:
+    return _PII_TRIGGER_RE.sub("", text).strip()
+
+
 def redact_pii(text: str) -> str:
     if not text or not text.strip():
         return text
 
-    redacted = text
+    redacted = _strip_after_trigger(text)   
+
     try:
-        language = _detect_language(text)
+        language = _detect_language(redacted)
         results = _analyzer.analyze(text=redacted, language=language, entities=PII_ENTITIES)
         if results:
             redacted = _anonymizer.anonymize(text=redacted, analyzer_results=results).text

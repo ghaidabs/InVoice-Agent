@@ -14,10 +14,13 @@ from schemas.intents import (
     UnknownIntent,
     LineItemInput,
 )
+import logging
 from agent.normalizer import normalize_invoice_number
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "intent_extraction.txt"
 SYSTEM_PROMPT = PROMPT_PATH.read_text()
@@ -38,6 +41,8 @@ _INTENT_MODEL_MAP = {
 
 def extract_intent(transcript: str, company_slug: str | None = None, language: str = "fr"):
     safe_transcript = redact_pii(transcript)
+    if safe_transcript != transcript:
+        logger.info("PII redacted: %r -> %r", transcript, safe_transcript)
 
     response = client.chat.completions.create(
         model="openai/gpt-oss-120b",
