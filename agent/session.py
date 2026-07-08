@@ -15,4 +15,5 @@ class SessionState:
     last_intent: Optional[str] = None
     confirmation_pending: bool = False
     awaiting_field: Optional[str] = None       
-    pending_transcript: Optional[str] = None  
+    pending_transcript: Optional[str] = None
+    pending_disambiguation: Optional[dict] = None

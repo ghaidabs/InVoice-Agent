@@ -102,7 +102,7 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
             raw_transcript=transcript,
         )
 
-def extract_intent_with_context(transcript: str, session: "SessionState"):
+def extract_intent_with_context(transcript: str, session: "SessionState", language: str = "fr"):
     company_slug = session.user.company_slug
     if session.awaiting_field and session.pending_transcript:
         combined = (
@@ -110,5 +110,5 @@ def extract_intent_with_context(transcript: str, session: "SessionState"):
             f"The user is now answering the question \"What is the {session.awaiting_field}?\" "
             f"with: \"{transcript}\". Use this value directly as the {session.awaiting_field} — "
         )
-        return extract_intent(combined, company_slug=company_slug)
-    return extract_intent(transcript, company_slug=company_slug)
+        return extract_intent(combined, company_slug=company_slug, language=language)
+    return extract_intent(transcript, company_slug=company_slug, language=language)

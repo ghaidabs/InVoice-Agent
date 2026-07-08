@@ -1,4 +1,7 @@
 from functools import lru_cache
+from dotenv import load_dotenv
+
+load_dotenv()
 
 _MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 

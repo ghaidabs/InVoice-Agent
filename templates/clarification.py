@@ -29,6 +29,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "clarify_unit_price": "I wasn't sure about the price. Could you confirm the amount?",
         "clarify_articles": "I wasn't sure about one of the items or amounts. Could you repeat that part?",
         "clarify_generic": "I wasn't sure I caught that correctly. Could you repeat?",
+        "clarify_client_rejected": "Okay, who did you mean instead?",
+        "clarify_product_rejected": "Okay, which product or service did you mean instead?",
     },
     "fr": {
         "client_not_found": "Aucun client trouvé correspondant à « {client_name} ».",
@@ -59,6 +61,8 @@ _STRINGS: dict[str, dict[str, str]] = {
             "Je n'étais pas sûr d'un des articles ou montants. Pouvez-vous répéter cette partie ?"
         ),
         "clarify_generic": "Je n'étais pas sûr d'avoir bien compris. Pouvez-vous répéter ?",
+        "clarify_client_rejected": "D'accord, qui vouliez-vous dire alors ?",
+        "clarify_product_rejected": "D'accord, quel produit ou service vouliez-vous dire ?",
     },
 }
 

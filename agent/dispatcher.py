@@ -40,9 +40,9 @@ async def dispatch(intent, saas: MockSaasClient, session: SessionState) -> Voice
         case ConfirmIntent():
             return await _handle_confirm(session, saas, language)
         case CancelIntent():
-            return _handle_cancel(session, language)
+            return await _handle_cancel(session, saas, language)
         case LookupClientIntent():
-            return await _lookup_client(intent, saas)
+            return await _lookup_client(intent, saas, session)
         case CheckPaymentIntent():
             return await _check_payment(intent, saas)
         case CheckInvoiceIntent():
@@ -65,7 +65,7 @@ async def dispatch(intent, saas: MockSaasClient, session: SessionState) -> Voice
             )
 
 
-async def _resolve_single_client(client_name: str, saas: MockSaasClient, language: str):
+async def _resolve_single_client(client_name: str, saas: MockSaasClient, language: str, session: SessionState, original_intent=None):
     matches = await saas.lookup_client(client_name)
     if len(matches) == 0:
         return VoiceResponse(
@@ -77,16 +77,36 @@ async def _resolve_single_client(client_name: str, saas: MockSaasClient, languag
         return matches[0]
 
     names = ", ".join(f"{m['first_name']} {m['last_name']}" for m in matches)
-    question = (
-        t("client_confirm_single", language, names=names)
-        if len(matches) == 1
-        else t("client_confirm_multiple", language, names=names)
+
+    if len(matches) == 1 and original_intent is not None:
+        session.pending_disambiguation = {
+            "kind": "client",
+            "candidate": matches[0],
+            "resume_intent": original_intent.intent.value,
+            "original_intent": original_intent,
+        }
+        question = t("client_confirm_single", language, names=names)
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+            requires_confirmation=True,
+            display_data=matches,
+        )
+
+    question = t("client_confirm_multiple", language, names=names)
+    return VoiceResponse(
+        success=False,
+        spoken_text=question,
+        clarification_question=question,
+        display_data=matches,
     )
-    return VoiceResponse(success=False, spoken_text=question, clarification_question=question, display_data=matches)
 
 
-async def _lookup_client(intent: LookupClientIntent, saas: MockSaasClient) -> VoiceResponse:
-    result = await _resolve_single_client(intent.client_name, saas, intent.language)
+async def _lookup_client(intent: LookupClientIntent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
+    result = await _resolve_single_client(
+        intent.client_name, saas, intent.language, session, original_intent=intent
+    )
     if isinstance(result, VoiceResponse):
         return result
     client = result
@@ -98,7 +118,6 @@ async def _lookup_client(intent: LookupClientIntent, saas: MockSaasClient) -> Vo
 
 
 def _has_target(intent) -> bool:
-    # True if the intent gives us something to look an invoice/client up by
     invoice_number = getattr(intent, "invoice_number", None)
     client_name = getattr(intent, "client_name", None)
     return bool(invoice_number) or bool(client_name and client_name.strip())
@@ -168,9 +187,143 @@ async def _check_invoice(intent: CheckInvoiceIntent, saas: MockSaasClient) -> Vo
     )
 
 
-async def _create_invoice_draft(
-    intent: CreateInvoiceIntent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
-    result = await _resolve_single_client(intent.client_name, saas, intent.language)
+def _line_item_from_product(item, product: dict) -> dict:
+    designation = product["designation"]
+    return {
+        "name": designation,
+        "designation": designation,
+        "description": "",
+        "quantity": item.quantity,
+        "unit_price": item.unit_price,
+        "total_ht": round(item.quantity * item.unit_price, 3),
+        "unit": item.unit or "piece",
+    }
+
+
+def _line_item_from_raw_name(item) -> dict:
+    return {
+        "name": item.product_name,
+        "designation": item.product_name,
+        "description": "",
+        "quantity": item.quantity,
+        "unit_price": item.unit_price,
+        "total_ht": round(item.quantity * item.unit_price, 3),
+        "unit": item.unit or "piece",
+    }
+
+
+async def _resolve_product_for_article(item, saas: MockSaasClient):
+    """
+    Returns either:
+      - ("resolved", product_dict) for an exact/unambiguous match
+      - ("ambiguous", product_dict) for a single fuzzy match needing confirmation
+      - ("not_found", None) if nothing at all matched
+    """
+    matches = await saas.lookup_product(item.product_name)
+    if len(matches) == 0:
+        return "not_found", None
+    if len(matches) == 1 and "_fuzzy_score" not in matches[0]:
+        return "resolved", matches[0]
+    if len(matches) == 1:
+        return "ambiguous", matches[0]
+    return "ambiguous_multiple", matches
+
+
+async def _build_line_items_or_pause(articles: list, saas: MockSaasClient, session: SessionState, resume_intent: str, original_intent, language: str) -> tuple[list[dict] | None, VoiceResponse | None]:
+    """
+    Resolves products for each article in order. On the first ambiguous
+    single-candidate match, stashes pending_disambiguation (kind="product")
+    with everything already resolved so far, and returns (None, VoiceResponse).
+    On full success, returns (line_items, None).
+    """
+    line_items: list[dict] = []
+
+    for idx, item in enumerate(articles):
+        status, result = await _resolve_product_for_article(item, saas)
+
+        if status == "resolved":
+            line_items.append(_line_item_from_product(item, result))
+            continue
+
+        if status == "not_found":
+            line_items.append(_line_item_from_raw_name(item))
+            continue
+
+        if status == "ambiguous":
+            names = f"{item.product_name} → {result['designation']}"
+            session.pending_disambiguation = {
+                "kind": "product",
+                "candidate": result,
+                "resume_intent": resume_intent,
+                "original_intent": original_intent,
+                "article_index": idx,
+                "resolved_line_items": line_items,
+            }
+            question = t("client_confirm_single", language, names=names)
+            return None, VoiceResponse(
+                success=False,
+                spoken_text=question,
+                clarification_question=question,
+                requires_confirmation=True,
+                display_data=result,
+            )
+
+        names = ", ".join(p["designation"] for p in result)
+        question = t("client_confirm_multiple", language, names=names)
+        return None, VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+            display_data=result,
+        )
+
+    return line_items, None
+
+
+async def _finalize_invoice_draft(intent: CreateInvoiceIntent, client: dict, saas: MockSaasClient, session: SessionState,
+    line_items: list[dict] | None = None,
+    ) -> VoiceResponse:
+    if line_items is None:
+        line_items, pause = await _build_line_items_or_pause(
+            intent.articles, saas, session,
+            resume_intent=IntentType.CREATE_INVOICE.value,
+            original_intent=intent,
+            language=intent.language,
+        )
+        if pause is not None:
+            session.pending_disambiguation["resolved_client"] = client
+            return pause
+
+    draft = await saas.build_invoice_draft(
+        client=client,
+        line_items=line_items,
+        currency=intent.currency,
+        is_tva_applicable=intent.is_tva_applicable,
+        is_stamp_applicable=intent.is_stamp_applicable,
+        payment_method=intent.payment_method,
+        terms_and_conditions=intent.terms_and_conditions,
+        due_date=intent.due_date,
+    )
+
+    session.pending_draft = draft
+    session.confirmation_pending = True
+    session.last_intent = IntentType.CREATE_INVOICE.value
+    session.awaiting_field = None
+    session.pending_transcript = None
+    session.pending_disambiguation = None
+
+    return VoiceResponse(
+        success=True,
+        spoken_text=build_invoice_draft_spoken(draft, language=intent.language),
+        requires_confirmation=True,
+        draft_payload=draft,
+    )
+
+
+async def _create_invoice_draft(intent: CreateInvoiceIntent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
+    result = await _resolve_single_client(
+        intent.client_name, saas, intent.language, session, original_intent=intent
+    )
     if isinstance(result, VoiceResponse):
         return result
     client = result
@@ -187,44 +340,7 @@ async def _create_invoice_draft(
             clarification_question=question,
         )
 
-    line_items = []
-    for item in intent.articles:
-        matches = await saas.lookup_product(item.product_name)
-        designation = matches[0]["designation"] if len(matches) == 1 else item.product_name
-        line_items.append({
-            "name": designation,
-            "designation": designation,
-            "description": "",
-            "quantity": item.quantity,
-            "unit_price": item.unit_price,
-            "total_ht": round(item.quantity * item.unit_price, 3),
-            "unit": item.unit or "piece",
-        })
-    draft = await saas.build_invoice_draft(
-        client=client,
-        line_items=line_items,
-        currency=intent.currency,
-        is_tva_applicable=intent.is_tva_applicable,
-        is_stamp_applicable=intent.is_stamp_applicable,
-        payment_method=intent.payment_method,
-        terms_and_conditions=intent.terms_and_conditions,
-        due_date=intent.due_date,
-    )
-
-    # Hold the draft in session state until the user explicitly confirms or cancels
-    session.pending_draft = draft
-    session.confirmation_pending = True
-    session.last_intent = IntentType.CREATE_INVOICE.value
-
-    session.awaiting_field = None
-    session.pending_transcript = None
-
-    return VoiceResponse(
-        success=True,
-        spoken_text=build_invoice_draft_spoken(draft, language=intent.language),
-        requires_confirmation=True,
-        draft_payload=draft,
-    )
+    return await _finalize_invoice_draft(intent, client, saas, session)
 
 
 async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
@@ -238,9 +354,41 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, sessio
             clarification_question=question,
         )
 
-    matches = await saas.lookup_product(intent.product_name)
-    designation = matches[0]["designation"] if len(matches) == 1 else intent.product_name
+    status, result = await _resolve_product_for_article(intent, saas)
 
+    if status == "ambiguous":
+        names = f"{intent.product_name} → {result['designation']}"
+        session.pending_disambiguation = {
+            "kind": "product",
+            "candidate": result,
+            "resume_intent": IntentType.ADD_LINE_ITEM.value,
+            "original_intent": intent,
+        }
+        question = t("client_confirm_single", intent.language, names=names)
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+            requires_confirmation=True,
+            display_data=result,
+        )
+
+    if status == "ambiguous_multiple":
+        names = ", ".join(p["designation"] for p in result)
+        question = t("client_confirm_multiple", intent.language, names=names)
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+            display_data=result,
+        )
+
+    designation = result["designation"] if status == "resolved" else intent.product_name
+
+    return await _finalize_add_line_item(intent, designation, saas, session)
+
+
+async def _finalize_add_line_item(intent: AddLineItemIntent, designation: str, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
     updated_invoice = await saas.add_line_item(
         invoice_number=intent.invoice_number,
         designation=designation,
@@ -258,6 +406,7 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, sessio
 
     session.awaiting_field = None
     session.pending_transcript = None
+    session.pending_disambiguation = None
     return VoiceResponse(
         success=True,
         spoken_text=build_line_item_added_spoken(
@@ -267,7 +416,97 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, sessio
     )
 
 
+async def _resolve_disambiguation(session: SessionState, saas: MockSaasClient, language: str, accepted: bool) -> VoiceResponse:
+    pending = session.pending_disambiguation
+    session.pending_disambiguation = None
+
+    if not accepted:
+        original_intent = pending["original_intent"]
+        if pending["kind"] == "client":
+            session.awaiting_field = "client_name"
+            session.pending_transcript = original_intent.raw_transcript
+            question = t("clarify_client_rejected", language)
+        else: 
+            session.awaiting_field = "product_name"
+            session.pending_transcript = original_intent.raw_transcript
+            question = t("clarify_product_rejected", language)
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+        )
+
+    candidate = pending["candidate"]
+    original_intent = pending["original_intent"]
+
+    if pending["kind"] == "client":
+        if isinstance(original_intent, CreateInvoiceIntent):
+            missing_price_items = [
+                item.product_name for item in original_intent.articles if item.unit_price is None
+            ]
+            if missing_price_items:
+                names = ", ".join(missing_price_items)
+                question = t("missing_unit_price", language, names=names)
+                session.awaiting_field = "unit_price"
+                session.pending_transcript = original_intent.raw_transcript
+                return VoiceResponse(
+                    success=False,
+                    spoken_text=question,
+                    clarification_question=question,
+                )
+            return await _finalize_invoice_draft(original_intent, candidate, saas, session)
+
+        if isinstance(original_intent, LookupClientIntent):
+            return VoiceResponse(
+                success=True,
+                spoken_text=build_client_spoken(candidate, language=language),
+                display_data=candidate,
+            )
+
+    if pending["kind"] == "product":
+        if pending["resume_intent"] == IntentType.ADD_LINE_ITEM.value:
+            return await _finalize_add_line_item(original_intent, candidate["designation"], saas, session)
+
+        if pending["resume_intent"] == IntentType.CREATE_INVOICE.value:
+            resolved_client = pending.get("resolved_client")
+            resolved_so_far = list(pending.get("resolved_line_items", []))
+            article_idx = pending["article_index"]
+
+            item = original_intent.articles[article_idx]
+            resolved_so_far.append(_line_item_from_product(item, candidate))
+
+            remaining = original_intent.articles[article_idx + 1:]
+            if remaining:
+                more_items, pause = await _build_line_items_or_pause(
+                    remaining, saas, session,
+                    resume_intent=IntentType.CREATE_INVOICE.value,
+                    original_intent=original_intent,
+                    language=language,
+                )
+                if pause is not None:
+                    session.pending_disambiguation["resolved_line_items"] = (
+                        resolved_so_far + session.pending_disambiguation["resolved_line_items"]
+                    )
+                    session.pending_disambiguation["article_index"] += article_idx + 1
+                    session.pending_disambiguation["resolved_client"] = resolved_client
+                    return pause
+                resolved_so_far.extend(more_items)
+
+            return await _finalize_invoice_draft(
+                original_intent, resolved_client, saas, session, line_items=resolved_so_far
+            )
+
+    return VoiceResponse(
+        success=False,
+        spoken_text=t("unhandled_intent", language),
+        error="unhandled_disambiguation",
+    )
+
+
 async def _handle_confirm(session: SessionState, saas: MockSaasClient, language: str) -> VoiceResponse:
+    if session.pending_disambiguation:
+        return await _resolve_disambiguation(session, saas, language, accepted=True)
+
     if not session.confirmation_pending or not session.pending_draft:
         return VoiceResponse(
             success=False,
@@ -294,7 +533,10 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
     )
 
 
-def _handle_cancel(session: SessionState, language: str) -> VoiceResponse:
+async def _handle_cancel(session: SessionState, saas: MockSaasClient, language: str) -> VoiceResponse:
+    if session.pending_disambiguation:
+        return await _resolve_disambiguation(session, saas, language, accepted=False)
+
     session.awaiting_field = None
     session.pending_transcript = None
     if not session.confirmation_pending:

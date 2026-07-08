@@ -58,8 +58,8 @@ def _print_response(resp) -> None:
     print()
 
 
-async def _run_pipeline(transcript: str, session: SessionState, saas: MockSaasClient) -> None:
-    intent = extract_intent_with_context(transcript, session)
+async def _run_pipeline(transcript: str, session: SessionState, saas: MockSaasClient, language: str = "fr") -> None:
+    intent = extract_intent_with_context(transcript, session, language=language)
     print(f"   [intent: {intent.intent}  confidence={intent.confidence}]")
 
     resp = await dispatch(intent, saas, session)
@@ -83,7 +83,8 @@ async def _voice_turn(session: SessionState, saas: MockSaasClient) -> None:
         if marked_text != result.transcript:
             print(f"   annotated:  \"{marked_text}\"")
 
-        await _run_pipeline(marked_text, session, saas)
+        detected_lang = result.language
+        await _run_pipeline(marked_text, session, saas, language=detected_lang)
         done.set()
 
     async def on_error(exc: Exception) -> None:
