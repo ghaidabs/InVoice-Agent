@@ -3,7 +3,7 @@ from mock.db import (
     search_products_by_name, get_product_by_id,
     get_invoice_by_number, get_invoices_by_client_name, get_invoices_by_status,
     create_invoice, add_line_item,
-    build_invoice_draft, confirm_invoice_draft,
+    build_invoice_draft, confirm_invoice_draft, get_all_products, get_all_clients
 )
 from agent.normalizer import normalize_invoice_number
 from agent.fuzzy import find_fuzzy

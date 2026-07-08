@@ -1,12 +1,16 @@
 import asyncio
+import logging
 from agent.session import SessionState, UserContext
 from agent.nlu import extract_intent_with_context
 from agent.dispatcher import dispatch
+from agent.stt import STTSession, TranscriptResult, annotate_low_confidence
 from api.mock_saas_client import MockSaasClient
 from mock.db import get_user_by_id, get_company_by_id
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 MOCK_USERS = {
     "1": 1,  # admin@acme.tn   / ADMIN / ACME
@@ -54,6 +58,75 @@ def _print_response(resp) -> None:
     print()
 
 
+async def _run_pipeline(transcript: str, session: SessionState, saas: MockSaasClient) -> None:
+    intent = extract_intent_with_context(transcript, session)
+    print(f"   [intent: {intent.intent}  confidence={intent.confidence}]")
+
+    resp = await dispatch(intent, saas, session)
+    _print_response(resp)
+
+
+async def _voice_turn(session: SessionState, saas: MockSaasClient) -> None:
+    try:
+        import sounddevice as sd
+    except ImportError:
+        print("[voice] sounddevice not installed. Run: pip install sounddevice numpy")
+        return
+
+    done = asyncio.Event()
+
+    async def on_transcript(result: TranscriptResult) -> None:
+        marked_text = annotate_low_confidence(result)
+
+        print(f'\n🎧 transcript: "{result.transcript}"')
+        print(f"   confidence: {result.confidence:.3f}" + (" (LOW)" if result.low_confidence else ""))
+        if marked_text != result.transcript:
+            print(f"   annotated:  \"{marked_text}\"")
+
+        await _run_pipeline(marked_text, session, saas)
+        done.set()
+
+    async def on_error(exc: Exception) -> None:
+        print(f"[voice] STT error: {exc}")
+        done.set()
+
+    async def on_speaking_state_change(speaking: bool) -> None:
+        print("🎤 listening..." if speaking else "🛑 processing...")
+
+    stt = STTSession(
+        on_transcript=on_transcript,
+        on_error=on_error,
+        on_speaking_state_change=on_speaking_state_change,
+    )
+    await stt.start()
+
+    loop = asyncio.get_event_loop()
+    audio_queue: asyncio.Queue[bytes] = asyncio.Queue()
+
+    def _callback(indata, frames, time_info, status):
+        if status:
+            logger.debug("sounddevice status: %s", status)
+        loop.call_soon_threadsafe(audio_queue.put_nowait, bytes(indata))
+
+    stream = sd.RawInputStream(
+        samplerate=16000, channels=1, dtype="int16", blocksize=1024, callback=_callback,
+    )
+
+    print("[voice] speak now — say one full request, then pause.")
+    with stream:
+        try:
+            while not done.is_set():
+                try:
+                    chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    continue
+                await stt.send_audio(chunk)
+        except KeyboardInterrupt:
+            pass
+        finally:
+            await stt.finish()
+
+
 async def repl() -> None:
     user_id = _select_user()
     session = _build_session(user_id)
@@ -63,7 +136,8 @@ async def repl() -> None:
         f"\nSession started — user_id={session.user.user_id} "
         f"company={session.user.company_slug} role={session.user.role}"
     )
-    print("Type a transcript and hit enter. Type 'switch' to change user, 'exit' to quit.\n")
+    print("Type a transcript, or type 'voice' to speak instead.")
+    print("Type 'switch' to change user, 'exit' to quit.\n")
 
     while True:
         try:
@@ -80,15 +154,14 @@ async def repl() -> None:
         if transcript.lower() == "switch":
             user_id = _select_user()
             session = _build_session(user_id)
-            saas = MockSaasClient(company_id=session.user.company_id, user_id=session.user.user_id)
+            saas = MockSaasClient(company_id=session.user.company_id, user_id=session.user.user_id, company_slug=session.user.company_slug)
             print(f"Switched to user_id={session.user.user_id} company={session.user.company_slug}\n")
             continue
+        if transcript.lower() == "voice":
+            await _voice_turn(session, saas)
+            continue
 
-        intent = extract_intent_with_context(transcript, session)
-        print(f"   [intent: {intent.intent}  confidence={intent.confidence}]")
-
-        resp = await dispatch(intent, saas, session)
-        _print_response(resp)
+        await _run_pipeline(transcript, session, saas)
 
 
 if __name__ == "__main__":
