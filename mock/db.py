@@ -226,8 +226,8 @@ def confirm_invoice_draft(draft: dict) -> dict:
 
 
 def add_line_item(
-    invoice_number: str,                              
-    company_id: int,                                  
+    invoice_number: str,
+    company_id: int,
     designation: str,
     quantity: float,
     unit_price: float,
@@ -237,21 +237,32 @@ def add_line_item(
         inv = _invoices.get(invoice_number)
         if not inv:
             return None
-        if inv["company_id"] != company_id:               
+        if inv["company_id"] != company_id:
             return None
 
-        new_item = {
-            "name": designation,
-            "designation": designation,
-            "description": description or "",
-            "quantity": quantity,
-            "unit_price": unit_price,
-            "total_ht": round(quantity * unit_price, 3),
-            "unit": unit
-        }
-        inv["articles"].append(new_item)
+        existing = next(
+            (a for a in inv["articles"] if a["designation"] == designation),
+            None,
+        )
 
-        # recalculate totals
+        if existing:
+            existing["quantity"] += quantity
+            existing["unit_price"] = unit_price
+            existing["total_ht"] = round(existing["quantity"] * existing["unit_price"], 3)
+            if description:
+                existing["description"] = description
+        else:
+            new_item = {
+                "name": designation,
+                "designation": designation,
+                "description": description or "",
+                "quantity": quantity,
+                "unit_price": unit_price,
+                "total_ht": round(quantity * unit_price, 3),
+                "unit": unit
+            }
+            inv["articles"].append(new_item)
+
         inv["total_ht"]  = round(sum(a["total_ht"] for a in inv["articles"]), 3)
         inv["tva"]       = round(inv["total_ht"] * 0.19, 3) if inv["is_tva_applicable"] else 0.0
         stamp            = 1.0 if inv["is_stamp_applicable"] else 0.0

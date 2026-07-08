@@ -356,6 +356,17 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, sessio
 
     status, result = await _resolve_product_for_article(intent, saas)
 
+    if status == "not_found":
+        session.awaiting_field = "product_name"
+        session.pending_transcript = intent.raw_transcript
+        question = t("clarify_product_not_found", intent.language, name=intent.product_name)
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+            error="product_not_found",
+        )
+
     if status == "ambiguous":
         names = f"{intent.product_name} → {result['designation']}"
         session.pending_disambiguation = {
@@ -383,36 +394,48 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, sessio
             display_data=result,
         )
 
-    designation = result["designation"] if status == "resolved" else intent.product_name
+    designation = result["designation"]  
 
     return await _finalize_add_line_item(intent, designation, saas, session)
 
 
 async def _finalize_add_line_item(intent: AddLineItemIntent, designation: str, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
-    updated_invoice = await saas.add_line_item(
-        invoice_number=intent.invoice_number,
-        designation=designation,
-        quantity=intent.quantity,
-        unit_price=intent.unit_price,
-        unit=intent.unit or "piece",
-    )
-
-    if not updated_invoice:
+    existing_invoice = await saas.get_invoice(intent.invoice_number)
+    if not existing_invoice:
         return VoiceResponse(
             success=False,
             spoken_text=t("invoice_not_found_number", intent.language, invoice_number=intent.invoice_number),
             error="invoice_not_found",
         )
 
+    session.pending_line_item = {
+        "invoice_number": intent.invoice_number,
+        "designation": designation,
+        "quantity": intent.quantity,
+        "unit_price": intent.unit_price,
+        "unit": intent.unit or "piece",
+    }
+    session.confirmation_pending = True
+    session.last_intent = IntentType.ADD_LINE_ITEM.value
     session.awaiting_field = None
     session.pending_transcript = None
     session.pending_disambiguation = None
+
+    qty_str = str(int(intent.quantity)) if intent.quantity == int(intent.quantity) else str(intent.quantity)
+    prompt = (
+        f"Ajouter {qty_str} {designation} ({intent.unit_price} {existing_invoice['currency']}/unité) "
+        f"à la facture {intent.invoice_number} ? Dites 'confirme' ou 'annule'."
+        if intent.language != "en" else
+        f"Add {qty_str} {designation} ({intent.unit_price} {existing_invoice['currency']}/unit) "
+        f"to invoice {intent.invoice_number}? Say 'confirm' or 'cancel'."
+    )
+
     return VoiceResponse(
-        success=True,
-        spoken_text=build_line_item_added_spoken(
-            intent.invoice_number, intent.product_name, intent.quantity, language=intent.language
-        ),
-        display_data=updated_invoice,
+        success=False,
+        spoken_text=prompt,
+        clarification_question=None,
+        requires_confirmation=True,
+        draft_payload=session.pending_line_item,
     )
 
 
@@ -507,6 +530,33 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
     if session.pending_disambiguation:
         return await _resolve_disambiguation(session, saas, language, accepted=True)
 
+    if session.pending_line_item:
+        item = session.pending_line_item
+        session.pending_line_item = None
+        session.confirmation_pending = False
+        session.last_intent = None
+
+        updated_invoice = await saas.add_line_item(
+            invoice_number=item["invoice_number"],
+            designation=item["designation"],
+            quantity=item["quantity"],
+            unit_price=item["unit_price"],
+            unit=item["unit"],
+        )
+        if not updated_invoice:
+            return VoiceResponse(
+                success=False,
+                spoken_text=t("invoice_not_found_number", language, invoice_number=item["invoice_number"]),
+                error="invoice_not_found",
+            )
+        return VoiceResponse(
+            success=True,
+            spoken_text=build_line_item_added_spoken(
+                item["invoice_number"], item["designation"], item["quantity"], language=language
+            ),
+            display_data=updated_invoice,
+        )
+
     if not session.confirmation_pending or not session.pending_draft:
         return VoiceResponse(
             success=False,
@@ -522,12 +572,9 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
     return VoiceResponse(
         success=True,
         spoken_text=t(
-            "confirm_invoice_created",
-            language,
-            invoice_number=invoice["invoice_number"],
-            client_name=invoice["client_name"],
-            total_ttc=invoice["total_ttc"],
-            currency=invoice["currency"],
+            "confirm_invoice_created", language,
+            invoice_number=invoice["invoice_number"], client_name=invoice["client_name"],
+            total_ttc=invoice["total_ttc"], currency=invoice["currency"],
         ),
         display_data=invoice,
     )
@@ -539,6 +586,16 @@ async def _handle_cancel(session: SessionState, saas: MockSaasClient, language: 
 
     session.awaiting_field = None
     session.pending_transcript = None
+
+    if session.pending_line_item:
+        session.pending_line_item = None
+        session.confirmation_pending = False
+        session.last_intent = None
+        return VoiceResponse(
+            success=True,
+            spoken_text=t("line_item_discarded", language),
+        )
+
     if not session.confirmation_pending:
         return VoiceResponse(
             success=False,
@@ -554,7 +611,6 @@ async def _handle_cancel(session: SessionState, saas: MockSaasClient, language: 
         success=True,
         spoken_text=t("draft_discarded", language),
     )
-
 
 def _clarification_prompt(intent) -> str:
     language = getattr(intent, "language", "en")

@@ -12,6 +12,7 @@ class UserContext:
 class SessionState:
     user: UserContext
     pending_draft: Optional[dict] = None
+    pending_line_item: Optional[dict] = None
     last_intent: Optional[str] = None
     confirmation_pending: bool = False
     awaiting_field: Optional[str] = None       

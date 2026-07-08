@@ -31,6 +31,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "clarify_generic": "I wasn't sure I caught that correctly. Could you repeat?",
         "clarify_client_rejected": "Okay, who did you mean instead?",
         "clarify_product_rejected": "Okay, which product or service did you mean instead?",
+        "clarify_product_not_found": "I couldn't find a product called '{name}' in your catalog. Which product did you mean?",
+        "line_item_discarded": "Okay, I discarded that line item.",
     },
     "fr": {
         "client_not_found": "Aucun client trouvé correspondant à « {client_name} ».",
@@ -63,6 +65,8 @@ _STRINGS: dict[str, dict[str, str]] = {
         "clarify_generic": "Je n'étais pas sûr d'avoir bien compris. Pouvez-vous répéter ?",
         "clarify_client_rejected": "D'accord, qui vouliez-vous dire alors ?",
         "clarify_product_rejected": "D'accord, quel produit ou service vouliez-vous dire ?",
+        "clarify_product_not_found": "Je n'ai trouvé aucun produit appelé « {name} » dans votre catalogue. Quel produit vouliez-vous dire ?",
+        "line_item_discarded": "D'accord, j'ai annulé cet ajout d'article.",
     },
 }
 
