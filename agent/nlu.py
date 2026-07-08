@@ -78,8 +78,9 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
     raw.setdefault("confidence", 0.0) 
     raw.setdefault("low_confidence_fields", [])
 
-    if raw.get("invoice_number"):
-        normalized = normalize_invoice_number(raw["invoice_number"], company_slug) if company_slug else raw["invoice_number"]
+    if intent_type in (IntentType.CHECK_INVOICE, IntentType.CHECK_PAYMENT):
+        candidate_number = raw.get("invoice_number") or transcript
+        normalized = normalize_invoice_number(candidate_number, company_slug) if company_slug else raw.get("invoice_number")
         if normalized is None:
             raw["invoice_number"] = None
             raw["confidence"] = min(raw["confidence"], 0.4)
@@ -87,6 +88,7 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
                 raw["low_confidence_fields"].append("invoice_number")
         else:
             raw["invoice_number"] = normalized
+            raw["confidence"] = max(raw["confidence"], 0.9)
 
     # rebuild line_items into LineItemInput objects if present
     if "articles" in raw and raw["articles"] is not None:

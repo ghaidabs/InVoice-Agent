@@ -78,13 +78,12 @@ intent = "unknown"
 }
 
 Rules:
-- Never guess invoice numbers — if ambiguous or unclear, set confidence below 0.5. 
+- "invoice_number" follows the format COMPANYSLUG_F{YYYYMM}-{SEQUENCE}. If the user gives a partial or unclear number, do not guess the rest — return null and lower confidence instead. Do not lower confidence or treat the number as ambiguous merely because no slug was mentioned — slug attachment happens downstream.
 - Formatting noise (extra spaces, misplaced dashes) in an invoice number is NOT the same as missing/ambiguous digits. If all 9 digits are present in order, extract the number as heard even if punctuation looks off — normalization is handled downstream. Only null it out and lower confidence when digits are actually missing or contradictory.
 - Never guess monetary amounts — if unclear, set confidence below 0.5 and leave the field null.
 - Never guess client identity — if ambiguous, set confidence below 0.5.
 - Default currency is "TND" unless another currency is explicitly stated.
 - If the transcript does not clearly match any intent above, return "unknown" with the full transcript in "raw_text".
-- "invoice_number" follows the format COMPANYSLUG_F{YYYYMM}-{SEQUENCE}, e.g. ACME_F202606-001. If the user gives a partial or unclear number, do not guess the rest — return null and lower confidence instead.
 - If the user is responding affirmatively to a pending confirmation, return intent "confirm". If they are declining or backing out, return intent "cancel". Use high confidence for these unless the transcript is genuinely ambiguous between confirming and something else.
 - Confirm phrasing includes both French ("confirme", "oui", "vas-y", "c'est bon", "valide") and English ("confirm", "yes", "go ahead", "that's fine", "do it").
 - Cancel phrasing includes both French ("annule", "non", "stop", "annulé") and English ("cancel", "no", "stop", "never mind", "forget it").
