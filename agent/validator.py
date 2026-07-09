@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_LANGUAGE = "fr"
 SUPPORTED_LANGUAGES = ["en", "fr"]
-PII_ENTITIES = ["PHONE_NUMBER", "EMAIL_ADDRESS", "CREDIT_CARD", "IBAN_CODE"]
+PII_ENTITIES = ["PHONE_NUMBER", "EMAIL_ADDRESS"]
 _PII_TRIGGER_RE = re.compile(
     r"\s*\b("
     r"email|e-?mail|adresse (e-?)?mail|courriel|"
@@ -51,7 +51,7 @@ def redact_pii(text: str) -> str:
     if not text or not text.strip():
         return text
 
-    redacted = _strip_after_trigger(text)   
+    redacted = _strip_after_trigger(text) 
 
     try:
         language = _detect_language(redacted)
