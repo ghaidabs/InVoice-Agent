@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 
 DEEPGRAM_API_KEY = os.environ.get("DEEPGRAM_API_KEY")
 
-DEFAULT_KEYTERMS = ["ACME", "NOVA"]
 
 DEFAULT_STT_CONFIG = {
     "model": "nova-3",
@@ -30,7 +29,6 @@ DEFAULT_STT_CONFIG = {
     "encoding": "linear16",
     "sample_rate": 16000,
     "channels": 1,
-    "keyterm": DEFAULT_KEYTERMS,
 }
 
 WORD_CONFIDENCE_FLOOR = 0.55

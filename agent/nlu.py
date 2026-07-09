@@ -119,8 +119,11 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
     raw.setdefault("confidence", 0.0) 
     raw.setdefault("low_confidence_fields", [])
 
-    if intent_type in (IntentType.CHECK_INVOICE, IntentType.CHECK_PAYMENT):
-        candidate_number = raw.get("invoice_number") or transcript
+    if intent_type in (IntentType.CHECK_INVOICE, IntentType.CHECK_PAYMENT, IntentType.ADD_LINE_ITEM):
+        if intent_type == IntentType.ADD_LINE_ITEM:           
+            candidate_number = raw.get("invoice_number") or ""
+        else:
+            candidate_number = raw.get("invoice_number") or transcript
         normalized = normalize_invoice_number(candidate_number, company_slug) if company_slug else raw.get("invoice_number")
         if normalized is None:
             raw["invoice_number"] = None

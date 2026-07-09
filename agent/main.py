@@ -3,7 +3,7 @@ import logging
 from agent.session import SessionState, UserContext
 from agent.nlu import extract_intent_with_context
 from agent.dispatcher import dispatch, resume_awaiting_field
-from agent.stt import STTSession, TranscriptResult, annotate_low_confidence, build_keyterms_for_company
+from agent.stt import STTSession, TranscriptResult, annotate_low_confidence
 from api.mock_saas_client import MockSaasClient
 from mock.db import get_user_by_id, get_company_by_id
 from dotenv import load_dotenv
@@ -100,13 +100,10 @@ async def _voice_turn(session: SessionState, saas: MockSaasClient) -> None:
     async def on_speaking_state_change(speaking: bool) -> None:
         print("🎤 listening..." if speaking else "🛑 processing...")
 
-    keyterms = build_keyterms_for_company(session.user.company_id)
-
     stt = STTSession(
         on_transcript=on_transcript,
         on_error=on_error,
         on_speaking_state_change=on_speaking_state_change,
-        config={"keyterm": keyterms},
     )
     await stt.start()
 

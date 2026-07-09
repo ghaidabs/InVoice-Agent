@@ -11,6 +11,8 @@ from schemas.intents import (
 )
 from schemas.responses import VoiceResponse
 from agent.session import SessionState
+from agent.normalizer import normalize_invoice_number
+from agent.nlu import extract_price_only
 from api.mock_saas_client import MockSaasClient
 from templates.invoice import (
     build_invoice_draft_spoken,
@@ -347,6 +349,17 @@ async def _create_invoice_draft(intent: CreateInvoiceIntent, saas: MockSaasClien
 
 
 async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
+    if not intent.invoice_number:
+        question = t("clarify_invoice_number", intent.language)
+        session.awaiting_field = "invoice_number"
+        session.awaiting_intent = intent
+        session.pending_transcript = intent.raw_transcript
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+        )
+
     if intent.unit_price is None:
         question = t("missing_unit_price", intent.language, names=intent.product_name)
         session.awaiting_field = "unit_price"
@@ -530,8 +543,26 @@ async def _resolve_disambiguation(session: SessionState, saas: MockSaasClient, l
     )
 
 async def resume_awaiting_field(transcript: str, session: SessionState, saas: MockSaasClient, language: str):
-    if session.awaiting_field != "unit_price" or session.awaiting_intent is None:
+    if session.awaiting_field not in ("unit_price", "invoice_number") or session.awaiting_intent is None:
         return None
+
+    if session.awaiting_field == "invoice_number":
+        intent = session.awaiting_intent
+        normalized = normalize_invoice_number(transcript, saas.company_slug) if saas.company_slug else None
+
+        if normalized is None:
+            question = t("clarify_invoice_number", language)
+            return VoiceResponse(
+                success=False,
+                spoken_text=question,
+                clarification_question=question,
+            )
+
+        intent.invoice_number = normalized
+        session.awaiting_field = None
+        session.awaiting_intent = None
+        session.pending_transcript = None
+        return await dispatch(intent, saas, session)
 
     price = extract_price_only(transcript)
     if price is None:

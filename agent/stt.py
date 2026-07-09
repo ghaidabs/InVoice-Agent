@@ -251,25 +251,6 @@ class LiveKitAudioSource:
         )
 
 
-def build_keyterms_for_company(company_id: int, extra: list[str] | None = None, max_terms: int = 50) -> list[str]:
-    from mock.db import get_all_clients, get_all_products, get_company_by_id  
-    terms: set[str] = set(get_company_by_id(company_id)["name"].split())
-
-    clients = get_all_clients(company_id, page=1, size=1000)["items"]
-    for c in clients:
-        terms.add(c["first_name"])
-        terms.add(c["last_name"])
-
-    products = get_all_products(company_id, page=1, size=1000)["items"]
-    for p in products:
-        terms.update(w for w in p["designation"].split() if len(w) > 2)
-
-    if extra:
-        terms.update(extra)
-
-    return list(terms)[:max_terms]
-
-
 LOW_CONF_MARK = "⚠"
 
 def annotate_low_confidence(result: TranscriptResult) -> str:

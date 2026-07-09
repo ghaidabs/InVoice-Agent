@@ -52,7 +52,7 @@ class CheckInvoiceIntent(BaseIntent):
 
 class AddLineItemIntent(BaseIntent):
     intent: Literal[IntentType.ADD_LINE_ITEM]
-    invoice_number: str
+    invoice_number: Optional[str] = None
     product_name: str
     quantity: float
     unit_price: Optional[float] = None
