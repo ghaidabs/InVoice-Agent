@@ -18,3 +18,5 @@ class SessionState:
     awaiting_field: Optional[str] = None       
     pending_transcript: Optional[str] = None
     pending_disambiguation: Optional[dict] = None
+    awaiting_intent: Optional[Any] = None   
+    awaiting_article_indices: Optional[list[int]] = None  

@@ -70,7 +70,7 @@ class STTSession:
         on_speaking_state_change: Optional[SpeakingStateCallback] = None,
         config: Optional[dict] = None,
         api_key: Optional[str] = None,
-    ):
+        ):
         key = api_key or DEEPGRAM_API_KEY
         if not key:
             raise RuntimeError(

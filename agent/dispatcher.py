@@ -333,6 +333,9 @@ async def _create_invoice_draft(intent: CreateInvoiceIntent, saas: MockSaasClien
         names = ", ".join(missing_price_items)
         question = t("missing_unit_price", intent.language, names=names)
         session.awaiting_field = "unit_price"
+        session.awaiting_article_indices = [
+            i for i, item in enumerate(intent.articles) if item.unit_price is None
+        ]
         session.pending_transcript = intent.raw_transcript
         return VoiceResponse(
             success=False,
@@ -347,6 +350,7 @@ async def _add_line_item(intent: AddLineItemIntent, saas: MockSaasClient, sessio
     if intent.unit_price is None:
         question = t("missing_unit_price", intent.language, names=intent.product_name)
         session.awaiting_field = "unit_price"
+        session.awaiting_intent = intent         
         session.pending_transcript = intent.raw_transcript
         return VoiceResponse(
             success=False,
@@ -525,7 +529,47 @@ async def _resolve_disambiguation(session: SessionState, saas: MockSaasClient, l
         error="unhandled_disambiguation",
     )
 
+async def resume_awaiting_field(transcript: str, session: SessionState, saas: MockSaasClient, language: str):
+    if session.awaiting_field != "unit_price" or session.awaiting_intent is None:
+        return None
 
+    price = extract_price_only(transcript)
+    if price is None:
+        question = t("clarify_unit_price", language)
+        return VoiceResponse(
+            success=False,
+            spoken_text=question,
+            clarification_question=question,
+        )
+
+    intent = session.awaiting_intent
+
+    if isinstance(intent, CreateInvoiceIntent):
+        for idx in session.awaiting_article_indices:
+            intent.articles[idx].unit_price = price
+
+    elif isinstance(intent, AddLineItemIntent):
+        intent.unit_price = price
+
+    else:
+        session.awaiting_field = None
+        session.awaiting_intent = None
+        session.awaiting_article_indices = None
+        session.pending_transcript = None
+        return VoiceResponse(
+            success=False,
+            spoken_text=t("unhandled_intent", language),
+            error="unhandled_awaiting_intent_type",
+        )
+
+    session.awaiting_field = None
+    session.awaiting_intent = None
+    session.awaiting_article_indices = None
+    session.pending_transcript = None
+
+    return await dispatch(intent, saas, session)
+
+    
 async def _handle_confirm(session: SessionState, saas: MockSaasClient, language: str) -> VoiceResponse:
     if session.pending_disambiguation:
         return await _resolve_disambiguation(session, saas, language, accepted=True)

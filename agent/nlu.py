@@ -14,14 +14,15 @@ from schemas.intents import (
     UnknownIntent,
     LineItemInput,
 )
+import re
 import logging
 from agent.normalizer import normalize_invoice_number
 from dotenv import load_dotenv
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+#logging.basicConfig(level=logging.INFO)
+#logger = logging.getLogger(__name__)
 
 PROMPT_PATH = Path(__file__).parent / "prompts" / "intent_extraction.txt"
 SYSTEM_PROMPT = PROMPT_PATH.read_text()
@@ -39,11 +40,45 @@ _INTENT_MODEL_MAP = {
     IntentType.UNKNOWN: UnknownIntent,
 }
 
+_NUMBER_WORD_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
+
+def extract_price_only(transcript: str) -> float | None:
+    match = _NUMBER_WORD_RE.search(transcript.replace(",", "."))
+    if match:
+        try:
+            return float(match.group().replace(",", "."))
+        except ValueError:
+            pass
+    return _extract_price_via_llm(transcript)
+
+
+def _extract_price_via_llm(transcript: str) -> float | None:
+    prompt = (
+        "Extract only a numeric price from this short spoken answer. "
+        "Respond ONLY with JSON: {\"price\": number or null}. "
+        "If no clear price is stated, return null. Do not guess."
+    )
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[
+            {"role": "system", "content": prompt},
+            {"role": "user", "content": transcript},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0.0,
+    )
+    try:
+        data = json.loads(response.choices[0].message.content)
+        price = data.get("price")
+        return float(price) if price is not None else None
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+
 
 def extract_intent(transcript: str, company_slug: str | None = None, language: str = "fr"):
-    safe_transcript = redact_pii(transcript)
-    if safe_transcript != transcript:
-        logger.info("PII redacted: %r -> %r", transcript, safe_transcript)
+    safe_transcript = redact_pii(transcript, company_slug)
+    #if safe_transcript != transcript:
+        #logger.info("PII redacted: %r -> %r", transcript, safe_transcript)
 
     response = client.chat.completions.create(
         model="openai/gpt-oss-120b",
@@ -96,12 +131,10 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
             raw["invoice_number"] = normalized
             raw["confidence"] = max(raw["confidence"], 0.9)
 
-    # rebuild line_items into LineItemInput objects if present
-    if "articles" in raw and raw["articles"] is not None:
-        raw["articles"] = [LineItemInput(**item) for item in raw["articles"]]
-
     try:
-        return model_class(**raw) # validated pydantic object
+        if "articles" in raw and raw["articles"] is not None:
+            raw["articles"] = [LineItemInput(**item) for item in raw["articles"]]
+        return model_class(**raw)
     except Exception:
         return UnknownIntent(
             intent=IntentType.UNKNOWN,

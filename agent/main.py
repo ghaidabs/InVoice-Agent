@@ -2,8 +2,8 @@ import asyncio
 import logging
 from agent.session import SessionState, UserContext
 from agent.nlu import extract_intent_with_context
-from agent.dispatcher import dispatch
-from agent.stt import STTSession, TranscriptResult, annotate_low_confidence
+from agent.dispatcher import dispatch, resume_awaiting_field
+from agent.stt import STTSession, TranscriptResult, annotate_low_confidence, build_keyterms_for_company
 from api.mock_saas_client import MockSaasClient
 from mock.db import get_user_by_id, get_company_by_id
 from dotenv import load_dotenv
@@ -59,6 +59,12 @@ def _print_response(resp) -> None:
 
 
 async def _run_pipeline(transcript: str, session: SessionState, saas: MockSaasClient, language: str = "fr") -> None:
+    if session.awaiting_field:
+        resumed = await resume_awaiting_field(transcript, session, saas, language)
+        if resumed is not None:
+            _print_response(resumed)
+            return
+
     intent = extract_intent_with_context(transcript, session, language=language)
     print(f"   [intent: {intent.intent}  confidence={intent.confidence}]")
 
@@ -94,10 +100,13 @@ async def _voice_turn(session: SessionState, saas: MockSaasClient) -> None:
     async def on_speaking_state_change(speaking: bool) -> None:
         print("🎤 listening..." if speaking else "🛑 processing...")
 
+    keyterms = build_keyterms_for_company(session.user.company_id)
+
     stt = STTSession(
         on_transcript=on_transcript,
         on_error=on_error,
         on_speaking_state_change=on_speaking_state_change,
+        config={"keyterm": keyterms},
     )
     await stt.start()
 
