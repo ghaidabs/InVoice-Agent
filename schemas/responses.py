@@ -6,9 +6,9 @@ class VoiceResponse(BaseModel):
     success: bool = True
     error: Optional[str] = None             
     clarification_question: Optional[str] = None  
-    requires_confirmation: bool = False     # True on draft-first operations
-    draft_payload: Optional[dict] = None    # held until user confirms
-    display_data: Optional[Union[dict, list]] = None  # client, invoice, or list
+    requires_confirmation: bool = False    
+    draft_payload: Optional[dict] = None    
+    display_data: Optional[Union[dict, list]] = None  
 
     @model_validator(mode="after")
     def check_consistency(self) -> "VoiceResponse":

@@ -1,3 +1,4 @@
+from agent.session import SessionState
 import json
 from pathlib import Path
 from groq import Groq
@@ -42,15 +43,6 @@ _INTENT_MODEL_MAP = {
 
 _NUMBER_WORD_RE = re.compile(r"[-+]?\d+(?:[.,]\d+)?")
 
-def extract_price_only(transcript: str) -> float | None:
-    match = _NUMBER_WORD_RE.search(transcript.replace(",", "."))
-    if match:
-        try:
-            return float(match.group().replace(",", "."))
-        except ValueError:
-            pass
-    return _extract_price_via_llm(transcript)
-
 
 def _extract_price_via_llm(transcript: str) -> float | None:
     prompt = (
@@ -73,6 +65,16 @@ def _extract_price_via_llm(transcript: str) -> float | None:
         return float(price) if price is not None else None
     except (json.JSONDecodeError, TypeError, ValueError):
         return None
+
+
+def extract_price_only(transcript: str) -> float | None:
+    match = _NUMBER_WORD_RE.search(transcript.replace(",", "."))
+    if match:
+        try:
+            return float(match.group().replace(",", "."))
+        except ValueError:
+            pass
+    return _extract_price_via_llm(transcript)
 
 
 def extract_intent(transcript: str, company_slug: str | None = None, language: str = "fr"):
@@ -146,7 +148,7 @@ def extract_intent(transcript: str, company_slug: str | None = None, language: s
             raw_transcript=transcript,
         )
 
-def extract_intent_with_context(transcript: str, session: "SessionState", language: str = "fr"):
+def extract_intent_with_context(transcript: str, session: SessionState, language: str = "fr"):
     company_slug = session.user.company_slug
     if session.awaiting_field and session.pending_transcript:
         combined = (

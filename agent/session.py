@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Any
 
 @dataclass
 class UserContext:
@@ -13,10 +13,10 @@ class SessionState:
     user: UserContext
     pending_draft: Optional[dict] = None
     pending_line_item: Optional[dict] = None
-    last_intent: Optional[str] = None
-    confirmation_pending: bool = False
-    awaiting_field: Optional[str] = None       
     pending_transcript: Optional[str] = None
     pending_disambiguation: Optional[dict] = None
+    pending_confirmation: bool = False 
+    awaiting_field: Optional[str] = None       
     awaiting_intent: Optional[Any] = None   
-    awaiting_article_indices: Optional[list[int]] = None  
+    awaiting_article_indices: Optional[list[int]] = None
+    last_intent: Optional[str] = None

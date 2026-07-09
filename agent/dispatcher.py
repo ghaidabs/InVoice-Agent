@@ -30,7 +30,16 @@ CONFIDENCE_THRESHOLD = 0.7
 async def dispatch(intent, saas: MockSaasClient, session: SessionState) -> VoiceResponse:
     language = getattr(intent, "language", "fr")
 
+    RECOVERABLE = {"invoice_number", "unit_price"}
+
     if intent.confidence < CONFIDENCE_THRESHOLD:
+        flagged = set(intent.low_confidence_fields)
+        if flagged and flagged <= RECOVERABLE:
+            if isinstance(intent, AddLineItemIntent):
+                return await _add_line_item(intent, saas, session)
+            if isinstance(intent, CreateInvoiceIntent):
+                return await _create_invoice_draft(intent, saas, session)
+
         prompt = _clarification_prompt(intent)
         return VoiceResponse(
             success=False,
@@ -308,7 +317,7 @@ async def _finalize_invoice_draft(intent: CreateInvoiceIntent, client: dict, saa
     )
 
     session.pending_draft = draft
-    session.confirmation_pending = True
+    session.pending_confirmation = True
     session.last_intent = IntentType.CREATE_INVOICE.value
     session.awaiting_field = None
     session.pending_transcript = None
@@ -432,7 +441,7 @@ async def _finalize_add_line_item(intent: AddLineItemIntent, designation: str, s
         "unit_price": intent.unit_price,
         "unit": intent.unit or "piece",
     }
-    session.confirmation_pending = True
+    session.pending_confirmation = True
     session.last_intent = IntentType.ADD_LINE_ITEM.value
     session.awaiting_field = None
     session.pending_transcript = None
@@ -608,7 +617,7 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
     if session.pending_line_item:
         item = session.pending_line_item
         session.pending_line_item = None
-        session.confirmation_pending = False
+        session.pending_confirmation = False
         session.last_intent = None
 
         updated_invoice = await saas.add_line_item(
@@ -632,7 +641,7 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
             display_data=updated_invoice,
         )
 
-    if not session.confirmation_pending or not session.pending_draft:
+    if not session.pending_confirmation or not session.pending_draft:
         return VoiceResponse(
             success=False,
             spoken_text=t("no_pending_confirmation", language),
@@ -641,7 +650,7 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
 
     invoice = await saas.confirm_invoice_draft(session.pending_draft)
     session.pending_draft = None
-    session.confirmation_pending = False
+    session.pending_confirmation = False
     session.last_intent = None
 
     return VoiceResponse(
@@ -664,14 +673,14 @@ async def _handle_cancel(session: SessionState, saas: MockSaasClient, language: 
 
     if session.pending_line_item:
         session.pending_line_item = None
-        session.confirmation_pending = False
+        session.pending_confirmation = False
         session.last_intent = None
         return VoiceResponse(
             success=True,
             spoken_text=t("line_item_discarded", language),
         )
 
-    if not session.confirmation_pending:
+    if not session.pending_confirmation:
         return VoiceResponse(
             success=False,
             spoken_text=t("no_pending_cancellation", language),
@@ -679,7 +688,7 @@ async def _handle_cancel(session: SessionState, saas: MockSaasClient, language: 
         )
 
     session.pending_draft = None
-    session.confirmation_pending = False
+    session.pending_confirmation = False
     session.last_intent = None
 
     return VoiceResponse(

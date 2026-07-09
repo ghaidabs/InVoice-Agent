@@ -10,6 +10,7 @@ def find_fuzzy(query: str, candidates: list[dict], key_fn, top_k: int = 3) -> li
     matches = process.extract(
         query, choices, scorer=fuzz.WRatio, limit=top_k
     )
+    
     # matches: list of (matched_string, score, choice_key)
     results = []
     for matched_str, score, idx in matches:
