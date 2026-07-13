@@ -3,15 +3,15 @@ def build_client_spoken(client: dict, language: str = "fr") -> str:
 
     if language == "en":
         return (
-            f"Found {full_name}. "
-            f"Phone: {client['phone']}. "
-            f"Address: {client['address']}."
+            f"I found {full_name}. "
+            f"You can reach them at {client['phone']}, "
+            f"located at {client['address']}."
         )
 
     return (
         f"J'ai trouvé {full_name}. "
-        f"Téléphone : {client['phone']}. "
-        f"Adresse : {client['address']}."
+        f"Vous pouvez le joindre au {client['phone']}, "
+        f"se trouvant à {client['address']}."
     )
 
 

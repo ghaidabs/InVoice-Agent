@@ -80,7 +80,6 @@ class MockSaasClient:
         is_stamp_applicable: bool = False,
         payment_method: str | None = None,
         terms_and_conditions: str | None = None,
-        due_date: str | None = None,
         ) -> dict:
             return create_invoice(
                 company_id=self.company_id,
@@ -92,7 +91,6 @@ class MockSaasClient:
                 is_stamp_applicable=is_stamp_applicable,
                 payment_method=payment_method,
                 terms_and_conditions=terms_and_conditions,
-                due_date=due_date,
             )
 
     async def build_invoice_draft(self, client: dict, line_items: list, **kwargs) -> dict:

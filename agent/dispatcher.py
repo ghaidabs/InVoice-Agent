@@ -19,6 +19,7 @@ from templates.invoice import (
     build_invoice_details_spoken,
     build_invoice_list_spoken,
     build_line_item_added_spoken,
+    build_line_item_confirmation_prompt
 )
 from templates.client_lookup import build_client_spoken
 from templates.payment_status import build_payment_status_spoken
@@ -313,7 +314,6 @@ async def _finalize_invoice_draft(intent: CreateInvoiceIntent, client: dict, saa
         is_stamp_applicable=intent.is_stamp_applicable,
         payment_method=intent.payment_method,
         terms_and_conditions=intent.terms_and_conditions,
-        due_date=intent.due_date,
     )
 
     session.pending_draft = draft
@@ -447,13 +447,13 @@ async def _finalize_add_line_item(intent: AddLineItemIntent, designation: str, s
     session.pending_transcript = None
     session.pending_disambiguation = None
 
-    qty_str = str(int(intent.quantity)) if intent.quantity == int(intent.quantity) else str(intent.quantity)
-    prompt = (
-        f"Ajouter {qty_str} {designation} ({intent.unit_price} {existing_invoice['currency']}/unité) "
-        f"à la facture {intent.invoice_number} ? Dites 'confirme' ou 'annule'."
-        if intent.language != "en" else
-        f"Add {qty_str} {designation} ({intent.unit_price} {existing_invoice['currency']}/unit) "
-        f"to invoice {intent.invoice_number}? Say 'confirm' or 'cancel'."
+    prompt = build_line_item_confirmation_prompt(
+        invoice_number=intent.invoice_number,
+        designation=designation,
+        quantity=intent.quantity,
+        unit_price=intent.unit_price,
+        currency=existing_invoice["currency"],
+        language=intent.language,
     )
 
     return VoiceResponse(

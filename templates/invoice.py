@@ -1,42 +1,40 @@
+from templates.spoken_format import spoken_amount, status_phrase
+
+
 def build_invoice_draft_spoken(draft: dict, language: str = "fr") -> str:
     item_count = len(draft.get("articles", []))
-    total_ttc = draft.get("total_ttc", 0.0)
-    currency = draft.get("currency", "TND")
-    due_date = draft.get("due_date")
+    amount = spoken_amount(draft.get("total_ttc", 0.0), draft.get("currency", "TND"), language)
 
     if language == "en":
         client_name = draft.get("client_name", "the client")
-        item_phrase = "1 item" if item_count == 1 else f"{item_count} items"
-        due_phrase = f" Due by {due_date}." if due_date else ""
         return (
-            f"Draft invoice for {client_name} with {item_phrase}, "
-            f"total {total_ttc} {currency}.{due_phrase} "
-            f"Say 'confirm' to create it, or 'cancel' to discard."
+            f"Here's the draft invoice for {client_name}. "
+            f"total {amount}."
+            f"Say 'confirm' to create it, or 'cancel' to discard it."
         )
 
-    # default: fr
     client_name = draft.get("client_name", "le client")
-    item_phrase = "1 article" if item_count == 1 else f"{item_count} articles"
-    due_phrase = f" À payer avant le {due_date}." if due_date else ""
     return (
-        f"Brouillon de facture pour {client_name} avec {item_phrase}, "
-        f"total {total_ttc} {currency}.{due_phrase} "
+        f"Voici le brouillon de facture pour {client_name}. "
         f"Dites 'confirme' pour la créer, ou 'annule' pour l'abandonner."
     )
 
 
 def build_invoice_details_spoken(invoice: dict, language: str = "fr") -> str:
+    number = invoice.get("invoice_number")
+    client_name = invoice.get("client_name")
+    amount = spoken_amount(invoice.get("total_ttc"), invoice.get("currency", "TND"), language)
+    phrase = status_phrase(invoice.get("status"), language)
+
     if language == "en":
         return (
-            f"Invoice {invoice.get('invoice_number')} for {invoice.get('client_name')}, "
-            f"status: {invoice.get('status')}, "
-            f"total: {invoice.get('total_ttc')} {invoice.get('currency')}."
+            f"The invoice {number} for {client_name} {phrase}. "
+            f"The total amount is {amount}."
         )
 
     return (
-        f"Facture {invoice.get('invoice_number')} pour {invoice.get('client_name')}, "
-        f"statut : {invoice.get('status')}, "
-        f"total : {invoice.get('total_ttc')} {invoice.get('currency')}."
+        f"La facture {number} pour {client_name} {phrase}. "
+        f"Le montant total est de {amount}."
     )
 
 
@@ -52,12 +50,26 @@ def build_invoice_list_spoken(invoices: list[dict], language: str = "fr") -> str
     return f"J'ai trouvé {len(invoices)} factures : {numbers}. Sur laquelle voulez-vous des détails ?"
 
 
-def build_line_item_added_spoken(
-    invoice_number: str, designation: str, quantity: float, language: str = "fr"
-) -> str:
+def build_line_item_added_spoken(invoice_number: str, designation: str, quantity: float, language: str = "fr") -> str:
     qty_str = str(int(quantity)) if quantity == int(quantity) else str(quantity)
 
     if language == "en":
-        return f"Added {qty_str} of {designation} to invoice {invoice_number}."
+        return f"Done — added {qty_str} of {designation} to invoice {invoice_number}."
 
-    return f"{qty_str} {designation} ajouté(s) à la facture {invoice_number}."
+    return f"C'est fait — {qty_str} {designation} ajouté(s) à la facture {invoice_number}."
+
+
+def build_line_item_confirmation_prompt(invoice_number: str, designation: str, quantity: float, unit_price: float, currency: str, language: str = "fr") -> str:
+    qty_str = str(int(quantity)) if quantity == int(quantity) else str(quantity)
+    unit_price_str = spoken_amount(unit_price, currency, language)
+
+    if language == "en":
+        return (
+            f"Add {qty_str} {designation} at {unit_price_str} each "
+            f"to invoice {invoice_number}? Say 'confirm' or 'cancel'."
+        )
+
+    return (
+        f"Ajouter {qty_str} {designation} à {unit_price_str} l'unité "
+        f"à la facture {invoice_number} ? Dites 'confirme' ou 'annule'."
+    )

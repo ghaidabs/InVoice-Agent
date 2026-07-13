@@ -193,7 +193,7 @@ When the dispatcher is awaiting a unit price from the user, this function extrac
 
 | Intent | Entities extracted |
 |--------|-------------------|
-| `create_invoice` | `client_name`, `articles[]` (product, qty, price, unit), `currency`, `due_date`, TVA/stamp flags, payment method |
+| `create_invoice` | `client_name`, `articles[]` (product, qty, price, unit), `currency`, TVA/stamp flags, payment method |
 | `lookup_client` | `client_name` |
 | `check_invoice` | `invoice_number` or `client_name` |
 | `add_line_item` | `invoice_number`, `product_name`, `quantity`, `unit_price`, `unit` |
