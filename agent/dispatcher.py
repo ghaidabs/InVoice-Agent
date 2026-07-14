@@ -19,11 +19,15 @@ from templates.invoice import (
     build_invoice_details_spoken,
     build_invoice_list_spoken,
     build_line_item_added_spoken,
-    build_line_item_confirmation_prompt
+    build_line_item_confirmation_spoken,
+    build_line_item_added_display,
+    build_line_item_confirmation_display,
+    build_invoice_details_display,
+    build_invoice_list_display,
 )
-from templates.client_lookup import build_client_spoken
-from templates.payment_status import build_payment_status_spoken
-from templates.clarification import t
+from templates.client_lookup import build_client_spoken, build_client_display
+from templates.payment_status import build_payment_status_spoken, build_payment_status_display
+from templates.clarification import t, t_spoken
 
 CONFIDENCE_THRESHOLD = 0.7
 
@@ -42,11 +46,23 @@ async def dispatch(intent, saas: MockSaasClient, session: SessionState) -> Voice
                 return await _create_invoice_draft(intent, saas, session)
 
         prompt = _clarification_prompt(intent)
+
+        if "invoice_number" in getattr(intent, "low_confidence_fields", []):
+            display_prompt = t_spoken("clarify_invoice_number", language)
+
+            return VoiceResponse(
+                success=False,
+                spoken_text=prompt,
+                display_text=display_prompt,
+                clarification_question=prompt,
+            )
+            
         return VoiceResponse(
-            success=False,
-            spoken_text=prompt,
-            clarification_question=prompt,
-        )
+                success=False,
+                spoken_text=prompt,
+                clarification_question=prompt,
+            )
+
 
     match intent:
         case ConfirmIntent():
@@ -125,6 +141,7 @@ async def _lookup_client(intent: LookupClientIntent, saas: MockSaasClient, sessi
     return VoiceResponse(
         success=True,
         spoken_text=build_client_spoken(client, language=intent.language),
+        display_text=build_client_display(client, language=intent.language),
         display_data=client,
     )
 
@@ -160,6 +177,7 @@ async def _check_payment(intent: CheckPaymentIntent, saas: MockSaasClient) -> Vo
     return VoiceResponse(
         success=True,
         spoken_text=build_payment_status_spoken(invoices, language=intent.language),
+        display_text=build_payment_status_display(invoices, language=intent.language),
         display_data=invoices,
     )
 
@@ -192,9 +210,16 @@ async def _check_invoice(intent: CheckInvoiceIntent, saas: MockSaasClient) -> Vo
         else build_invoice_list_spoken(invoices, language=intent.language)
     )
 
+    display = (
+        build_invoice_details_display(invoices[0], language=intent.language)
+        if len(invoices) == 1
+        else build_invoice_list_display(invoices, language=intent.language)
+    )
+
     return VoiceResponse(
         success=True,
         spoken_text=spoken,
+        display_text=display,
         display_data=invoices,
     )
 
@@ -326,6 +351,7 @@ async def _finalize_invoice_draft(intent: CreateInvoiceIntent, client: dict, saa
     return VoiceResponse(
         success=True,
         spoken_text=build_invoice_draft_spoken(draft, language=intent.language),
+        display_text=build_invoice_details_display(draft, language=intent.language),
         requires_confirmation=True,
         draft_payload=draft,
     )
@@ -431,6 +457,7 @@ async def _finalize_add_line_item(intent: AddLineItemIntent, designation: str, s
         return VoiceResponse(
             success=False,
             spoken_text=t("invoice_not_found_number", intent.language, invoice_number=intent.invoice_number),
+            display_text=t_spoken("invoice_not_found_number", intent.language, invoice_number=intent.invoice_number),
             error="invoice_not_found",
         )
 
@@ -447,7 +474,16 @@ async def _finalize_add_line_item(intent: AddLineItemIntent, designation: str, s
     session.pending_transcript = None
     session.pending_disambiguation = None
 
-    prompt = build_line_item_confirmation_prompt(
+    prompt = build_line_item_confirmation_spoken(
+        invoice_number=intent.invoice_number,
+        designation=designation,
+        quantity=intent.quantity,
+        unit_price=intent.unit_price,
+        currency=existing_invoice["currency"],
+        language=intent.language,
+    )
+
+    display_prompt = build_line_item_confirmation_display(
         invoice_number=intent.invoice_number,
         designation=designation,
         quantity=intent.quantity,
@@ -459,6 +495,7 @@ async def _finalize_add_line_item(intent: AddLineItemIntent, designation: str, s
     return VoiceResponse(
         success=False,
         spoken_text=prompt,
+        display_text=display_prompt,
         clarification_question=None,
         requires_confirmation=True,
         draft_payload=session.pending_line_item,
@@ -509,6 +546,7 @@ async def _resolve_disambiguation(session: SessionState, saas: MockSaasClient, l
             return VoiceResponse(
                 success=True,
                 spoken_text=build_client_spoken(candidate, language=language),
+                display_text=build_client_display(candidate, language=language),
                 display_data=candidate,
             )
 
@@ -631,11 +669,15 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
             return VoiceResponse(
                 success=False,
                 spoken_text=t("invoice_not_found_number", language, invoice_number=item["invoice_number"]),
+                display_text=t_spoken("invoice_not_found_number", language, invoice_number=item["invoice_number"]),
                 error="invoice_not_found",
             )
         return VoiceResponse(
             success=True,
             spoken_text=build_line_item_added_spoken(
+                item["invoice_number"], item["designation"], item["quantity"], language=language
+            ),
+            display_text=build_line_item_added_display(
                 item["invoice_number"], item["designation"], item["quantity"], language=language
             ),
             display_data=updated_invoice,
@@ -656,6 +698,11 @@ async def _handle_confirm(session: SessionState, saas: MockSaasClient, language:
     return VoiceResponse(
         success=True,
         spoken_text=t(
+            "confirm_invoice_created", language,
+            invoice_number=invoice["invoice_number"], client_name=invoice["client_name"],
+            total_ttc=invoice["total_ttc"], currency=invoice["currency"],
+        ),
+        display_text=t_spoken(
             "confirm_invoice_created", language,
             invoice_number=invoice["invoice_number"], client_name=invoice["client_name"],
             total_ttc=invoice["total_ttc"], currency=invoice["currency"],

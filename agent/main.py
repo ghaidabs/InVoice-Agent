@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from typing import Optional
 from agent.session import SessionState, UserContext
 from agent.nlu import extract_intent_with_context
@@ -26,10 +27,19 @@ _tts_session: Optional[TTSSession] = None
 _tts_enabled = True
 _tts_init_failed = False
 
-_model()  
-for company in _companies.values():
-    ensure_client_index(company["id"])
-    ensure_product_index(company["id"])
+def _warm_up_rag() -> None:
+    try:
+        _model()
+        for company in _companies.values():
+            ensure_client_index(company["id"])
+            ensure_product_index(company["id"])
+    except Exception:
+        logger.exception(
+            "RAG warm-up failed to complete; the first RAG fallback lookup "
+            "may be slower until this is resolved."
+        )
+
+threading.Thread(target=_warm_up_rag, daemon=True, name="rag-warmup").start()
 
 def _get_tts_session() -> Optional[TTSSession]:
     global _tts_session, _tts_init_failed
@@ -105,7 +115,9 @@ def _select_user() -> int:
 
 
 def _print_response(resp) -> None:
-    print(f"\n🗣  {resp.spoken_text}")
+    text = resp.display_text or resp.spoken_text
+
+    print(f"\n🗣  {text}")
     if resp.clarification_question:
         print(f"   [clarification needed: {resp.clarification_question}]")
     if resp.requires_confirmation:

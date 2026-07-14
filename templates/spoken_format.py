@@ -110,3 +110,10 @@ def spoken_invoice_suffix(invoice_number: str | None, language: str = "fr") -> s
 
     return ", ".join(g for g in groups if g)
 
+
+def display_amount(value: float | None, currency: str | None) -> str:
+    value = value or 0.0
+    amount_str = f"{int(value):,}" if value == int(value) else f"{value:,.2f}"
+    amount_str = amount_str.replace(",", " ")
+    
+    return f"{amount_str} {(currency or '').upper()}".strip()
