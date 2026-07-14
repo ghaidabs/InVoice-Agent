@@ -3,13 +3,11 @@ from templates.spoken_format import spoken_amount, status_phrase
 
 def build_invoice_draft_spoken(draft: dict, language: str = "fr") -> str:
     item_count = len(draft.get("articles", []))
-    amount = spoken_amount(draft.get("total_ttc", 0.0), draft.get("currency", "TND"), language)
 
     if language == "en":
         client_name = draft.get("client_name", "the client")
         return (
             f"Here's the draft invoice for {client_name}. "
-            f"total {amount}."
             f"Say 'confirm' to create it, or 'cancel' to discard it."
         )
 

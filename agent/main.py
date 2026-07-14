@@ -7,7 +7,9 @@ from agent.dispatcher import dispatch, resume_awaiting_field
 from agent.stt import STTSession, TranscriptResult, annotate_low_confidence
 from agent.tts import TTSSession
 from api.mock_saas_client import MockSaasClient
-from mock.db import get_user_by_id, get_company_by_id
+from rag.embeddings import _model
+from rag.indexer import ensure_client_index, ensure_product_index
+from mock.db import get_user_by_id, get_company_by_id, _companies
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -24,6 +26,10 @@ _tts_session: Optional[TTSSession] = None
 _tts_enabled = True
 _tts_init_failed = False
 
+_model()  
+for company in _companies.values():
+    ensure_client_index(company["id"])
+    ensure_product_index(company["id"])
 
 def _get_tts_session() -> Optional[TTSSession]:
     global _tts_session, _tts_init_failed
@@ -106,6 +112,8 @@ def _print_response(resp) -> None:
         print("   [awaiting confirm/cancel]")
     if resp.error:
         print(f"   [error: {resp.error}]")
+    if resp.draft_payload is not None:
+        print(f"   [draft_payload: {resp.draft_payload}]")
     if resp.display_data is not None:
         print(f"   [display_data: {resp.display_data}]")
     print()

@@ -3,6 +3,7 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
 from rag.embeddings import embed
 from dotenv import load_dotenv
+from mock.db import get_all_clients, get_all_products
 
 load_dotenv()
 
@@ -12,7 +13,7 @@ QDRANT_API_KEY = os.environ.get("QDRANT_API_KEY")
 
 _qdrant_client: QdrantClient | None = None
 _ensured_collections: set[str] = set()
-
+_indexed_once: set[tuple[str, int]] = set()
 
 def get_qdrant() -> QdrantClient:
     global _qdrant_client
@@ -59,13 +60,20 @@ def index_entities(entity_type: str, company_id: int, entities: list[dict], text
     )
 
 
-def ensure_client_index(company_id: int) -> None:
-    from mock.db import get_all_clients
+def ensure_client_index(company_id: int, force: bool = False) -> None:
+    key = ("client", company_id)
+    if key in _indexed_once and not force:
+        return
+
     clients = get_all_clients(company_id, page=1, size=10_000)["items"]
     index_entities("client", company_id, clients, lambda c: f"{c['first_name']} {c['last_name']}")
+    _indexed_once.add(key)
 
-
-def ensure_product_index(company_id: int) -> None:
-    from mock.db import get_all_products
+def ensure_product_index(company_id: int, force: bool = False) -> None:
+    key = ("product", company_id)
+    if key in _indexed_once and not force:
+        return
+    
     products = get_all_products(company_id, page=1, size=10_000)["items"]
     index_entities("product", company_id, products, lambda p: p["designation"])
+    _indexed_once.add(key)
