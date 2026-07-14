@@ -1,4 +1,5 @@
 from typing import Any
+from templates.spoken_format import spoken_invoice_suffix
 
 DEFAULT_LANGUAGE = "fr"
 
@@ -74,4 +75,6 @@ _STRINGS: dict[str, dict[str, str]] = {
 def t(key: str, language: str | None, **kwargs: Any) -> str:
     lang = language if language in _STRINGS else DEFAULT_LANGUAGE
     template = _STRINGS[lang].get(key) or _STRINGS[DEFAULT_LANGUAGE].get(key, key)
+    if kwargs.get("invoice_number"):
+        kwargs = {**kwargs, "invoice_number": spoken_invoice_suffix(kwargs["invoice_number"], language=lang)}
     return template.format(**kwargs)

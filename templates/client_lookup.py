@@ -1,16 +1,19 @@
+from templates.spoken_format import spoken_phone_number
+
 def build_client_spoken(client: dict, language: str = "fr") -> str:
     full_name = f"{client['first_name']} {client['last_name']}"
+    phone_spoken = spoken_phone_number(client["phone"], language=language)
 
     if language == "en":
         return (
             f"I found {full_name}. "
-            f"You can reach them at {client['phone']}, "
+            f"You can reach them at {phone_spoken}, "
             f"located at {client['address']}."
         )
 
     return (
         f"J'ai trouvé {full_name}. "
-        f"Vous pouvez le joindre au {client['phone']}, "
+        f"Vous pouvez le joindre au {phone_spoken}, "
         f"se trouvant à {client['address']}."
     )
 

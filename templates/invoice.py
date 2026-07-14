@@ -1,5 +1,4 @@
-from templates.spoken_format import spoken_amount, status_phrase
-
+from templates.spoken_format import spoken_amount, status_phrase, spoken_invoice_suffix
 
 def build_invoice_draft_spoken(draft: dict, language: str = "fr") -> str:
     item_count = len(draft.get("articles", []))
@@ -19,7 +18,7 @@ def build_invoice_draft_spoken(draft: dict, language: str = "fr") -> str:
 
 
 def build_invoice_details_spoken(invoice: dict, language: str = "fr") -> str:
-    number = invoice.get("invoice_number")
+    number = spoken_invoice_suffix(invoice.get("invoice_number"), language=language)
     client_name = invoice.get("client_name")
     amount = spoken_amount(invoice.get("total_ttc"), invoice.get("currency", "TND"), language)
     phrase = status_phrase(invoice.get("status"), language)
@@ -40,7 +39,10 @@ def build_invoice_list_spoken(invoices: list[dict], language: str = "fr") -> str
     if len(invoices) == 1:
         return build_invoice_details_spoken(invoices[0], language=language)
 
-    numbers = ", ".join(i.get("invoice_number", "unknown") for i in invoices)
+    numbers = " ; ".join(
+        spoken_invoice_suffix(i.get("invoice_number"), language=language) or "unknown"
+        for i in invoices
+    )
 
     if language == "en":
         return f"I found {len(invoices)} invoices: {numbers}. Which one would you like details on?"
@@ -49,25 +51,27 @@ def build_invoice_list_spoken(invoices: list[dict], language: str = "fr") -> str
 
 
 def build_line_item_added_spoken(invoice_number: str, designation: str, quantity: float, language: str = "fr") -> str:
+    number = spoken_invoice_suffix(invoice_number, language=language)
     qty_str = str(int(quantity)) if quantity == int(quantity) else str(quantity)
 
     if language == "en":
-        return f"Done — added {qty_str} of {designation} to invoice {invoice_number}."
+        return f"Done — added {qty_str} of {designation} to invoice {number}."
 
-    return f"C'est fait — {qty_str} {designation} ajouté(s) à la facture {invoice_number}."
+    return f"C'est fait — {qty_str} {designation} ajouté(s) à la facture {number}."
 
 
 def build_line_item_confirmation_prompt(invoice_number: str, designation: str, quantity: float, unit_price: float, currency: str, language: str = "fr") -> str:
+    number = spoken_invoice_suffix(invoice_number, language=language)
     qty_str = str(int(quantity)) if quantity == int(quantity) else str(quantity)
     unit_price_str = spoken_amount(unit_price, currency, language)
 
     if language == "en":
         return (
             f"Add {qty_str} {designation} at {unit_price_str} each "
-            f"to invoice {invoice_number}? Say 'confirm' or 'cancel'."
+            f"to invoice {number}? Say 'confirm' or 'cancel'."
         )
 
     return (
         f"Ajouter {qty_str} {designation} à {unit_price_str} l'unité "
-        f"à la facture {invoice_number} ? Dites 'confirme' ou 'annule'."
+        f"à la facture {number} ? Dites 'confirme' ou 'annule'."
     )
